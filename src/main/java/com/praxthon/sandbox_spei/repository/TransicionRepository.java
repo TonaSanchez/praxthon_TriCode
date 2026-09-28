@@ -7,5 +7,5 @@ import java.util.List;
 
 @Repository
 public interface TransicionRepository extends JpaRepository<Transicion, Long> {
-    List<Transicion> findByOperacionIdOrderByFechaAsc(Long operacionId);
+    List<Transicion> findByOperacionIdOrderByFechaAscIdAsc(Long operacionId);
 }

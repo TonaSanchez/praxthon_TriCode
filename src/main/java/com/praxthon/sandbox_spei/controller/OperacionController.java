@@ -3,15 +3,13 @@ package com.praxthon.sandbox_spei.controller;
 import com.praxthon.sandbox_spei.dto.ErrorDetalleDTO;
 import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
 import com.praxthon.sandbox_spei.dto.RespuestaOperacionDTO;
-import com.praxthon.sandbox_spei.dto.ValidadorDeReglas;
-import com.praxthon.sandbox_spei.entity.ClaveIdempotencia;
-import com.praxthon.sandbox_spei.entity.Operacion;
-import com.praxthon.sandbox_spei.repository.OperacionRepository;
 import com.praxthon.sandbox_spei.service.MotorDePagosService;
+import com.praxthon.sandbox_spei.validation.ValidadorDeReglas;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,14 +20,10 @@ public class OperacionController {
 
     private final ValidadorDeReglas validador;
     private final MotorDePagosService motorService;
-    private final OperacionRepository operacionRepository;
 
-    public OperacionController(ValidadorDeReglas validador,
-                               MotorDePagosService motorService,
-                               OperacionRepository operacionRepository) {
+    public OperacionController(ValidadorDeReglas validador, MotorDePagosService motorService) {
         this.validador = validador;
         this.motorService = motorService;
-        this.operacionRepository = operacionRepository;
     }
 
     @PostMapping("/operaciones")
@@ -38,76 +32,121 @@ public class OperacionController {
             @RequestHeader(value = "X-Escenario-Forzado", required = false) String escenarioForzado,
             @RequestBody PeticionPagoDTO peticion) {
 
-        String hashActual = motorService.calcularHash(peticion);
+        String ref = peticion.getReferenciaSeguimiento();
 
-        Optional<ClaveIdempotencia> idemExistente = motorService.buscarIdempotencia(claveIdempotencia);
-        if (idemExistente.isPresent()) {
-            ClaveIdempotencia idem = idemExistente.get();
-            if (idem.getHashCuerpo().equals(hashActual)) {
-                return ResponseEntity.ok(motorService.consultarPorId(idem.getOperacionId()).orElseThrow());
-            } else {
-                return ResponseEntity.status(409).body(armarRespuestaError(
-                        peticion.getReferenciaSeguimiento(),
-                        List.of(new ErrorDetalleDTO("PRX-015", "Clave-Idempotencia", "Clave de idempotencia reutilizada con cuerpo distinto"))
-                ));
-            }
+        List<ErrorDetalleDTO> erroresEncabezado = validador.validarEncabezados(claveIdempotencia, escenarioForzado);
+        if (!erroresEncabezado.isEmpty()) {
+            return error(422, ref, erroresEncabezado);
         }
 
+        String hash = motorService.calcularHash(peticion);
+
+        ResponseEntity<?> reintento = verificarReintentoIdempotente(claveIdempotencia, hash, ref);
+        if (reintento != null) {
+            return reintento;
+        }
+
+        // Validación sintáctica en capa de borde (V01 a V19)
         List<ErrorDetalleDTO> errores = validador.validar(peticion);
-        if (!errores.isEmpty()) {
-            return ResponseEntity.status(422).body(armarRespuestaError(peticion.getReferenciaSeguimiento(), errores));
+
+        // V12: Verificar si la referencia ya existe (solo si pasó el formato V11)
+        if (ref != null && ref.matches("[a-zA-Z0-9]{1,30}") && motorService.existeReferencia(ref)) {
+            errores.add(new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
+                    "La referencia de seguimiento ya fue registrada previamente"));
         }
 
-        RespuestaOperacionDTO respuesta = motorService.procesarPago(peticion, claveIdempotencia, hashActual, escenarioForzado);
-        return ResponseEntity.status(201).body(respuesta);
+        if (!errores.isEmpty()) {
+            return error(422, ref, errores);
+        }
+
+        try {
+            RespuestaOperacionDTO creada = motorService.procesarPago(peticion, claveIdempotencia, hash, escenarioForzado);
+            return ResponseEntity.status(201).body(creada);
+        } catch (DataIntegrityViolationException e) {
+            ResponseEntity<?> carrera = verificarReintentoIdempotente(claveIdempotencia, hash, ref);
+            if (carrera != null) {
+                return carrera;
+            }
+            return error(422, ref, List.of(new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
+                    "La referencia de seguimiento ya fue registrada previamente")));
+        }
     }
 
     @GetMapping("/operaciones")
     public ResponseEntity<?> listarOperaciones(
             @RequestParam(defaultValue = "0") int pagina,
             @RequestParam(defaultValue = "20") int tamano) {
-        return ResponseEntity.ok(motorService.listarPaginadoContrato(pagina, tamano));
+        int paginaSegura = Math.max(pagina, 0);
+        int tamanoSeguro = Math.min(Math.max(tamano, 1), 100);
+        return ResponseEntity.ok(motorService.listarPaginadoContrato(paginaSegura, tamanoSeguro));
     }
 
     @GetMapping("/operaciones/{id}")
     public ResponseEntity<?> consultarPorId(@PathVariable String id) {
         Long idNumerico = extraerIdNumerico(id);
         if (idNumerico == null) {
-            return ResponseEntity.status(404).body(armarRespuestaError(null,
-                    List.of(new ErrorDetalleDTO(null, "id", "Identificador inexistente"))));
+            return noEncontrado();
         }
-        return motorService.consultarPorId(idNumerico)
-                .<ResponseEntity<?>>map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(404).body(armarRespuestaError(null,
-                        List.of(new ErrorDetalleDTO(null, "id", "Identificador inexistente")))));
+        Optional<RespuestaOperacionDTO> resultado = motorService.consultarPorId(idNumerico);
+        if (resultado.isEmpty()) {
+            return noEncontrado();
+        }
+        return ResponseEntity.ok(resultado.get());
     }
 
     @PatchMapping("/operaciones/{id}/estado")
     public ResponseEntity<?> cambiarEstado(@PathVariable String id, @RequestBody Map<String, String> body) {
         Long idNumerico = extraerIdNumerico(id);
-        Optional<Operacion> opOpt = (idNumerico != null) ? operacionRepository.findById(idNumerico) : Optional.empty();
-        if (opOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(armarRespuestaError(null,
-                    List.of(new ErrorDetalleDTO(null, "id", "Identificador inexistente"))));
+        if (idNumerico == null) {
+            return noEncontrado();
         }
+
+        String motivo = body.get("motivo");
+        if (motivo != null && motivo.length() > 10) {
+            return error(422, null, List.of(new ErrorDetalleDTO(null, "motivo", "El motivo admite máximo 10 caracteres")));
+        }
+
         try {
-            motorService.aplicarTransicion(opOpt.get(), body.get("nuevoEstado"), body.get("motivo"));
-            return ResponseEntity.ok(motorService.consultarPorId(idNumerico).orElseThrow());
+            Optional<RespuestaOperacionDTO> resultado = motorService.cambiarEstado(idNumerico, body.get("nuevoEstado"), motivo);
+            if (resultado.isEmpty()) {
+                return noEncontrado();
+            }
+            return ResponseEntity.ok(resultado.get());
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(422).body(armarRespuestaError(opOpt.get().getReferenciaSeguimiento(),
-                    List.of(new ErrorDetalleDTO("PRX-014", "estado", "Transición de estado no permitida"))));
+            Optional<RespuestaOperacionDTO> opActual = motorService.consultarPorId(idNumerico);
+            String ref = opActual.isPresent() ? opActual.get().getReferenciaSeguimiento() : null;
+            return error(422, ref, List.of(new ErrorDetalleDTO("PRX-014", "estado", "Transición de estado no permitida")));
         }
     }
 
     @GetMapping("/catalogos/instituciones")
     public ResponseEntity<?> obtenerCatalogoInstituciones() {
-        return ResponseEntity.ok(List.of(
-                Map.of("codigo", "801", "nombre", "Banco Praxis Alfa"),
-                Map.of("codigo", "802", "nombre", "Banco Praxis Beta"),
-                Map.of("codigo", "803", "nombre", "Banco Praxis Gamma"),
-                Map.of("codigo", "804", "nombre", "Praxis Servicios de Pago"),
-                Map.of("codigo", "805", "nombre", "Banco Praxis Delta")
-        ));
+        List<Map<String, String>> catalogo = new ArrayList<>();
+        for (Map.Entry<String, String> entry : ValidadorDeReglas.CATALOGO_INSTITUCIONES.entrySet()) {
+            catalogo.add(Map.of("codigo", entry.getKey(), "nombre", entry.getValue()));
+        }
+        return ResponseEntity.ok(catalogo);
+    }
+
+    private ResponseEntity<?> verificarReintentoIdempotente(String clave, String hash, String ref) {
+        try {
+            Optional<RespuestaOperacionDTO> existente = motorService.resolverReintento(clave, hash);
+            if (existente.isPresent()) {
+                return ResponseEntity.ok(existente.get());
+            }
+            return null;
+        } catch (IllegalStateException e) {
+            return error(409, ref, List.of(new ErrorDetalleDTO("PRX-015",
+                    "Clave-Idempotencia", "Clave de idempotencia reutilizada con cuerpo distinto")));
+        }
+    }
+
+    private ResponseEntity<?> noEncontrado() {
+        return error(404, null, List.of(new ErrorDetalleDTO(null, "id", "Identificador inexistente")));
+    }
+
+    private ResponseEntity<?> error(int status, String ref, List<ErrorDetalleDTO> errores) {
+        return ResponseEntity.status(status).body(ManejadorErrores.cuerpo(ref, errores));
     }
 
     private Long extraerIdNumerico(String id) {
@@ -117,12 +156,5 @@ public class OperacionController {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    private Map<String, Object> armarRespuestaError(String ref, List<ErrorDetalleDTO> errores) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("referenciaSeguimiento", ref);
-        map.put("errores", errores);
-        return map;
     }
 }

@@ -179,7 +179,7 @@ class AnexoAAceptacionTests {
     @Test
     void a26_cuenta9005_permaneceEnProceso() throws Exception {
         String id = crear(t2t(ref(), clabe("802", "9005")));
-        verificar(id, "EN_PROCESO", 2, null);
+        verificar(id, "EN_PROCESO", 2, "PRX-023");
     }
 
     @Test
@@ -282,6 +282,104 @@ class AnexoAAceptacionTests {
                 .andExpect(jsonPath("$.length()").value(5))
                 .andExpect(jsonPath("$[0].codigo").value("801"));
     }
+
+    // ---------- Pruebas nuevas ----------
+
+    @Test
+    void d2_tipoInvalido_prx031() throws Exception {
+        String body = cuerpo("XXX", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        verificarError(alta(body), "PRX-031", "tipoOperacion");
+    }
+
+    @Test
+    void d3_referenciaConSimbolos_prx009() throws Exception {
+        String body = cuerpo("T2T", "REF-@#!", emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        verificarError(alta(body), "PRX-009", "referenciaSeguimiento");
+    }
+
+    @Test
+    void d4_t2tConSucursal_prx012() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"" + EMISOR + "\",\"sucursal\":\"0417\",\"nombre\":\"Ana Ruiz Delgado\"}";
+        String body = cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        verificarError(alta(body), "PRX-012", "emisor.sucursal");
+    }
+
+    @Test
+    void d5_nombreEmisorVacio_prx011() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"" + EMISOR + "\",\"nombre\":\"\"}";
+        String body = cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        verificarError(alta(body), "PRX-011", "emisor.nombre");
+    }
+
+    @Test
+    void d6_sucursalLarga_422() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"sucursal\":\"" + "1".repeat(21)
+                + "\",\"nombre\":\"Marta Solis Vega\",\"documentoIdentidad\":{\"tipo\":\"INE\",\"numero\":\"IDMEX1734558\"}}";
+        alta(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[?(@.campo=='emisor.sucursal')]").isNotEmpty());
+    }
+
+    @Test
+    void d7_importeConCerosSobrantes_seAcepta() throws Exception {
+        crear(conImporte("1500.500", "MXN"));
+    }
+
+    @Test
+    void d8_rechazadoEsTerminal_prx014() throws Exception {
+        mvc.perform(get(RUTA + "/op_4")).andExpect(jsonPath("$.estado").value("RECHAZADO"));
+        cambiarEstado("op_4", "LIQUIDADO")
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+    }
+
+    @Test
+    void d9_patchSinNuevoEstado_prx014() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9005")));
+        mvc.perform(patch(RUTA + "/" + id + "/estado").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+    }
+
+    @Test
+    void d10_jsonRotoOTipoIncorrecto_422() throws Exception {
+        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content("{roto"))
+                .andExpect(status().is(422));
+        alta(cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "\"abc\""))
+                .andExpect(status().is(422));
+    }
+
+    @Test
+    void d11_paginacionNegativa_seCorrige() throws Exception {
+        mvc.perform(get(RUTA + "?pagina=-1&tamano=0"))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.pagina").value(0))
+                .andExpect(jsonPath("$.tamano").value(1));
+    }
+
+    @Test
+    void d12_tamanoMaximo100() throws Exception {
+        mvc.perform(get(RUTA + "?tamano=100000"))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.tamano").value(100));
+    }
+
+    @Test
+    void d13_claveIdempotenciaLarga_422() throws Exception {
+        alta(t2t(ref(), RECEPTOR_OK), "a".repeat(65)).andExpect(status().is(422));
+    }
+
+    @Test
+    void d14_mismoImporteDistintaEscala_devuelveOriginal() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        String ref = ref();
+        String id = crear(cuerpo("T2T", ref, emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.5", "MXN", "Pago", "123"), clave);
+        alta(cuerpo("T2T", ref, emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123"), clave)
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.id").value(id));
+    }
+
+    
 
     private ResultActions alta(String body) throws Exception {
         return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(body));
