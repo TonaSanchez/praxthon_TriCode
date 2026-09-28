@@ -1,6 +1,6 @@
 # Sandbox SPEI
 
-API REST desarrollada con Spring Boot para simular operaciones de pago SPEI, con validaciones de negocio, control de idempotencia, historial de transiciones y consulta de pagos.
+API REST con Spring Boot para simular pagos SPEI. Incluye validaciones de negocio, idempotencia, estados de operación, historial de transiciones y un catálogo ficticio de instituciones.
 
 ## ¿Qué hace este proyecto?
 
@@ -14,62 +14,94 @@ El sistema permite:
 - Mantener un historial de transiciones por operación.
 - Exponer un catálogo básico de instituciones bancarias.
 
-## Stack tecnológico
+## Arranque 
 
-- Java 17
-- Spring Boot 4.1.1
-- Gradle
-- Spring Web MVC
-- Spring Data JPA
-- MySQL
-- Hibernate / JPA
+Estas instrucciones son para Windows 10/11 con conexión a Internet. No necesitas instalar Gradle ni MySQL: el proyecto incluye Gradle Wrapper y usa H2 en memoria de forma predeterminada. La primera ejecución descarga Gradle y dependencias, por lo que el tiempo depende de la conexión.
 
-## Requisitos
+### 1. Instala Java y Git
 
-- Java 17+
-- Gradle
-- MySQL local o disponible
+Abre PowerShell y ejecuta:
 
-## Configuración
-
-1. Clona el repositorio.
-2. Crea la base de datos `sandbox_spei`.
-3. Ajusta las credenciales en `src/main/resources/application.properties`.
-4. Asegúrate de que el puerto y la conexión a MySQL estén correctos.
-
-## Ejecución
-
-Desde la raíz del proyecto:
-
-```bash
-gradlew bootRun
+```powershell
+winget install --id EclipseAdoptium.Temurin.17.JDK -e
+winget install --id Git.Git -e
 ```
 
-La aplicación queda disponible en:
+Cierra y vuelve a abrir PowerShell; verifica que ambos comandos estén disponibles:
 
-```text
-http://localhost:8080
+```powershell
+java -version
+git --version
 ```
 
-## Endpoints principales
+Se requiere Java 17 o superior.
 
-```text
-POST   /api/v1/operaciones
-GET    /api/v1/operaciones
-GET    /api/v1/operaciones/{id}
-PATCH  /api/v1/operaciones/{id}/estado
-GET    /api/v1/catalogos/instituciones
+### 2. Descarga el proyecto
+
+```powershell
+git clone https://github.com/TonaSanchez/praxthon.git
+cd praxthon
 ```
 
-## Estructura del proyecto
+### 3. Inicia el sandbox
 
-- `src/main/java/com/praxthon/sandbox_spei/controller` – controladores REST
-- `src/main/java/com/praxthon/sandbox_spei/service` – lógica de negocio y estados
-- `src/main/java/com/praxthon/sandbox_spei/entity` – entidades JPA
-- `src/main/java/com/praxthon/sandbox_spei/repository` – acceso a datos
-- `src/main/resources` – configuración, SQL y propiedades
-- `build.gradle` – configuración de Gradle
+```powershell
+.\gradlew.bat bootRun
+```
 
-## Nota
+Espera el mensaje `Started SandboxSpeiApplication`. La API estará disponible en `http://localhost:8080`. Al iniciar se crean automáticamente cuatro operaciones de ejemplo.
 
-Este proyecto simula un flujo SPEI con validación de negocio y trazabilidad de cambios, pensado para pruebas y demostración de un motor de pagos.
+En macOS o Linux, usa `./gradlew bootRun` en lugar de `gradlew.bat`.
+
+### 4. Comprueba que responde
+
+Abre otra ventana de PowerShell y consulta el catálogo:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/v1/catalogos/instituciones
+```
+
+Debe responder con cinco instituciones ficticias (códigos `801` a `805`). También puedes consultar las operaciones precargadas:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/v1/operaciones
+```
+
+Para detener la aplicación, vuelve a la terminal donde está ejecutándose y pulsa `Ctrl+C`.
+
+## Configuración de datos
+
+El perfil predeterminado está en `src/main/resources/application.properties`: usa una base H2 en memoria, crea el esquema al iniciar y carga datos de ejemplo. Los datos se reinician al detener la aplicación. No edites credenciales ni instales una base de datos para el arranque rápido.
+
+Hay una configuración opcional para MySQL en `src/main/resources/application-mysql.properties`. Para usarla se necesita MySQL con la base `sandbox_spei` y el esquema creado; configura la contraseña mediante la variable `DB_PASSWORD` y activa el perfil `mysql` al iniciar. Este paso no es necesario para probar el sandbox.
+
+## API
+
+La especificación detallada está en [`src/main/resources/openapi.yaml`](src/main/resources/openapi.yaml). Endpoints principales:
+
+| Método | Ruta | Descripción |
+
+| `POST`  `/api/v1/operaciones`  Registrar un pago 
+| `GET`  `/api/v1/operaciones`  Listar operaciones paginadas 
+| `GET`  `/api/v1/operaciones/{id}`  Consultar operación e historial 
+| `PATCH`  `/api/v1/operaciones/{id}/estado`  Solicitar cambio de estado 
+| `GET`  `/api/v1/catalogos/instituciones`  Consultar instituciones ficticias 
+
+La creación acepta los encabezados opcionales `Clave-Idempotencia` y `X-Escenario-Forzado`. Las instrucciones válidas responden `201`; las inválidas responden `422`. Reutilizar una clave de idempotencia con el mismo cuerpo devuelve la operación original; usarla con un cuerpo distinto responde `409`.
+
+## Pruebas
+
+Desde la raíz del repositorio:
+
+```powershell
+.\gradlew.bat test
+```
+
+## Tecnologías y estructura
+
+- Java 17+, Spring Boot, Spring Web MVC, Spring Data JPA y Hibernate.
+- Gradle Wrapper para compilar, probar y ejecutar sin instalar Gradle globalmente.
+- `src/main/java/com/praxthon/sandbox_spei/controller`: endpoints REST.
+- `src/main/java/com/praxthon/sandbox_spei/service`: reglas de negocio y flujo de estados.
+- `src/main/java/com/praxthon/sandbox_spei/entity` y `repository`: persistencia.
+- `src/main/resources`: configuración, contrato OpenAPI y scripts SQL.
