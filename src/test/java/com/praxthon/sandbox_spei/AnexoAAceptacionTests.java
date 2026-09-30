@@ -1,5 +1,10 @@
 package com.praxthon.sandbox_spei;
 
+import com.praxthon.sandbox_spei.entity.ClaveIdempotencia;
+import com.praxthon.sandbox_spei.entity.Operacion;
+import com.praxthon.sandbox_spei.repository.ClaveIdempotenciaRepository;
+import com.praxthon.sandbox_spei.repository.OperacionRepository;
+import com.praxthon.sandbox_spei.service.MotorDePagosService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,11 +15,15 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -34,6 +43,12 @@ class AnexoAAceptacionTests {
     @Autowired
     private WebApplicationContext contexto;
 
+    @Autowired
+    private OperacionRepository operacionRepository;
+
+    @Autowired
+    private ClaveIdempotenciaRepository idempotenciaRepository;
+
     private MockMvc mvc;
 
     @BeforeEach
@@ -45,6 +60,14 @@ class AnexoAAceptacionTests {
     void a01_t2tValida_seRegistraYSeLiquida() throws Exception {
         String id = crear(t2t(ref(), RECEPTOR_OK));
         verificar(id, "LIQUIDADO", 3, null);
+    }
+
+    @Test
+    void a01b_elCuerpoDelPost_traeEstadoRecibido() throws Exception {
+        alta(t2t(ref(), RECEPTOR_OK))
+                .andExpect(status().is(201))
+                .andExpect(jsonPath("$.estado").value("RECIBIDO"))
+                .andExpect(jsonPath("$.transiciones.length()").value(1));
     }
 
     @Test
@@ -177,6 +200,12 @@ class AnexoAAceptacionTests {
     }
 
     @Test
+    void institucion805_tienePrioridadSobre9005() throws Exception {
+        String id = crear(t2t(ref(), clabe("805", "9005")));
+        verificar(id, "DEVUELTO", 3, "PRX-022");
+    }
+
+    @Test
     void a26_cuenta9005_permaneceEnProceso() throws Exception {
         String id = crear(t2t(ref(), clabe("802", "9005")));
         verificar(id, "EN_PROCESO", 2, "PRX-023");
@@ -224,6 +253,22 @@ class AnexoAAceptacionTests {
         String id = crear(t2t(ref(), clabe("802", "9005")));
         cambiarEstado(id, "LIQUIDADO").andExpect(status().is(200));
         verificar(id, "LIQUIDADO", 3, null);
+    }
+
+    @Test
+    void maquinaDeEstados_soloLasSieteTransicionesDeLaTablaSonPermitidas() {
+        List<String> estados = List.of("RECIBIDO", "EN_PROCESO", "LIQUIDADO", "DEVUELTO", "RECHAZADO", "EN_INVESTIGACION");
+        Set<String> permitidas = Set.of(
+                "RECIBIDO>EN_PROCESO", "RECIBIDO>RECHAZADO",
+                "EN_PROCESO>LIQUIDADO", "EN_PROCESO>DEVUELTO", "EN_PROCESO>EN_INVESTIGACION",
+                "EN_INVESTIGACION>LIQUIDADO", "EN_INVESTIGACION>DEVUELTO");
+        for (String origen : estados) {
+            for (String destino : estados) {
+                assertEquals(permitidas.contains(origen + ">" + destino),
+                        MotorDePagosService.transicionPermitida(origen, destino),
+                        origen + " -> " + destino);
+            }
+        }
     }
 
     @Test
@@ -276,14 +321,35 @@ class AnexoAAceptacionTests {
     }
 
     @Test
+    void mismaClaveConOtraReferencia_prx015() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        crear(t2t(ref(), RECEPTOR_OK), clave);
+        alta(t2t(ref(), RECEPTOR_OK), clave)
+                .andExpect(status().is(409))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-015"));
+    }
+
+    @Test
+    void claveExpirada_seProcesaComoClaveNueva() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        String primerId = crear(t2t(ref(), RECEPTOR_OK), clave);
+
+        ClaveIdempotencia vieja = idempotenciaRepository.findById(clave).orElseThrow();
+        vieja.setFechaExpiracion(LocalDateTime.now().minusHours(1));
+        idempotenciaRepository.save(vieja);
+
+        String segundoId = crear(t2t(ref(), RECEPTOR_OK), clave);
+        assertNotEquals(primerId, segundoId);
+        mvc.perform(get(RUTA + "/" + segundoId)).andExpect(status().is(200));
+    }
+
+    @Test
     void catalogoDeInstituciones_devuelveLasCinco() throws Exception {
         mvc.perform(get("/api/v1/catalogos/instituciones"))
                 .andExpect(status().is(200))
                 .andExpect(jsonPath("$.length()").value(5))
                 .andExpect(jsonPath("$[0].codigo").value("801"));
     }
-
-    // ---------- Pruebas nuevas ----------
 
     @Test
     void d2_tipoInvalido_prx031() throws Exception {
@@ -327,8 +393,12 @@ class AnexoAAceptacionTests {
 
     @Test
     void d8_rechazadoEsTerminal_prx014() throws Exception {
-        mvc.perform(get(RUTA + "/op_4")).andExpect(jsonPath("$.estado").value("RECHAZADO"));
-        cambiarEstado("op_4", "LIQUIDADO")
+        Operacion semillaRechazada = operacionRepository.findAll().stream()
+                .filter(o -> "SEMILLA0004".equals(o.getReferenciaSeguimiento()))
+                .findFirst().orElseThrow();
+        String id = "op_" + semillaRechazada.getId();
+        mvc.perform(get(RUTA + "/" + id)).andExpect(jsonPath("$.estado").value("RECHAZADO"));
+        cambiarEstado(id, "LIQUIDADO")
                 .andExpect(status().is(422))
                 .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
     }
@@ -342,10 +412,27 @@ class AnexoAAceptacionTests {
     }
 
     @Test
-    void d10_jsonRotoOTipoIncorrecto_422() throws Exception {
+    void d10_jsonRoto_422() throws Exception {
         mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content("{roto"))
-                .andExpect(status().is(422));
-        alta(cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "\"abc\""))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores.length()").value(1));
+    }
+
+    @Test
+    void d10_folioConTipoIncorrecto_prx008() throws Exception {
+        verificarError(alta(cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "\"abc\"")), "PRX-008", "folioNumerico");
+    }
+
+    @Test
+    void d10_importeConTipoIncorrecto_prx004() throws Exception {
+        verificarError(alta(cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK),
+                "\"abc\"", "MXN", "Pago", "123")), "PRX-004", "importe.valor");
+    }
+
+    @Test
+    void d10_cuerpoNull_422() throws Exception {
+        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content("null"))
                 .andExpect(status().is(422));
     }
 
@@ -379,7 +466,13 @@ class AnexoAAceptacionTests {
                 .andExpect(jsonPath("$.id").value(id));
     }
 
-    
+    @Test
+    void vntConCuentaVacia_prx012() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"\",\"sucursal\":\"0417\",\"nombre\":\"Marta Solis Vega\","
+                + "\"documentoIdentidad\":{\"tipo\":\"INE\",\"numero\":\"IDMEX1734558\"}}";
+        verificarError(alta(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "123")), "PRX-012", "emisor.cuenta");
+    }
 
     private ResultActions alta(String body) throws Exception {
         return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(body));

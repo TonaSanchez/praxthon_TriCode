@@ -1,10 +1,11 @@
 package com.praxthon.sandbox_spei.config;
-import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
+
 import com.praxthon.sandbox_spei.entity.Operacion;
 import com.praxthon.sandbox_spei.entity.Transicion;
 import com.praxthon.sandbox_spei.repository.OperacionRepository;
 import com.praxthon.sandbox_spei.repository.TransicionRepository;
 import com.praxthon.sandbox_spei.service.MotorDePagosService;
+import com.praxthon.sandbox_spei.service.MotorDePagosService.ComandoPago;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
@@ -78,56 +79,42 @@ public class DatosSemilla implements CommandLineRunner {
         motor.aplicarTransicion(op, "RECHAZADO", null);
     }
 
-    private PeticionPagoDTO t2t(String ref, String cuentaEmisor, String instReceptor,
-                                String cuentaReceptor, String nombreReceptor,
-                                String valor, String concepto, long folio) {
-        PeticionPagoDTO req = new PeticionPagoDTO();
-        req.setTipoOperacion("T2T");
-        req.setReferenciaSeguimiento(ref);
-        req.setImporte(new PeticionPagoDTO.ImporteDTO(new BigDecimal(valor), "MXN"));
-
-        PeticionPagoDTO.EmisorDTO emisor = new PeticionPagoDTO.EmisorDTO();
-        emisor.setInstitucion("801");
-        emisor.setCuenta(cuentaEmisor);
-        emisor.setNombre("Ana Ruiz Delgado");
-        req.setEmisor(emisor);
-
-        PeticionPagoDTO.ReceptorDTO receptor = new PeticionPagoDTO.ReceptorDTO();
-        receptor.setInstitucion(instReceptor);
-        receptor.setCuenta(cuentaReceptor);
-        receptor.setNombre(nombreReceptor);
-        req.setReceptor(receptor);
-
-        req.setConcepto(concepto);
-        req.setFolioNumerico(folio);
-        return req;
+    private ComandoPago t2t(String ref, String cuentaEmisor, String instReceptor,
+                            String cuentaReceptor, String nombreReceptor,
+                            String valor, String concepto, long folio) {
+        return new ComandoPago(
+                "T2T",
+                ref,
+                new BigDecimal(valor),
+                "MXN",
+                "Ana Ruiz Delgado",
+                "801",
+                cuentaEmisor,
+                null,
+                null,
+                nombreReceptor,
+                instReceptor,
+                cuentaReceptor,
+                concepto,
+                folio);
     }
 
-    private PeticionPagoDTO vnt(String ref, String instReceptor, String cuentaReceptor,
-                                String nombreReceptor, String valor, String concepto, long folio) {
-        PeticionPagoDTO req = new PeticionPagoDTO();
-        req.setTipoOperacion("VNT");
-        req.setReferenciaSeguimiento(ref);
-        req.setImporte(new PeticionPagoDTO.ImporteDTO(new BigDecimal(valor), "MXN"));
-
-        PeticionPagoDTO.EmisorDTO emisor = new PeticionPagoDTO.EmisorDTO();
-        emisor.setInstitucion("801");
-        emisor.setSucursal("0417");
-        emisor.setNombre("Marta Solis Vega");
-        PeticionPagoDTO.DocumentoIdentidadDTO doc = new PeticionPagoDTO.DocumentoIdentidadDTO();
-        doc.setTipo("INE");
-        doc.setNumero("IDMEX1734558");
-        emisor.setDocumentoIdentidad(doc);
-        req.setEmisor(emisor);
-
-        PeticionPagoDTO.ReceptorDTO receptor = new PeticionPagoDTO.ReceptorDTO();
-        receptor.setInstitucion(instReceptor);
-        receptor.setCuenta(cuentaReceptor);
-        receptor.setNombre(nombreReceptor);
-        req.setReceptor(receptor);
-
-        req.setConcepto(concepto);
-        req.setFolioNumerico(folio);
-        return req;
+    private ComandoPago vnt(String ref, String instReceptor, String cuentaReceptor,
+                            String nombreReceptor, String valor, String concepto, long folio) {
+        return new ComandoPago(
+                "VNT",
+                ref,
+                new BigDecimal(valor),
+                "MXN",
+                "Marta Solis Vega",
+                "801",
+                null,
+                "0417",
+                "INE:IDMEX1734558",
+                nombreReceptor,
+                instReceptor,
+                cuentaReceptor,
+                concepto,
+                folio);
     }
 }

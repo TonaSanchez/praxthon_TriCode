@@ -4,11 +4,14 @@ import com.praxthon.sandbox_spei.dto.ErrorDetalleDTO;
 import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
 import com.praxthon.sandbox_spei.dto.RespuestaOperacionDTO;
 import com.praxthon.sandbox_spei.service.MotorDePagosService;
+import com.praxthon.sandbox_spei.service.MotorDePagosService.ComandoPago;
 import com.praxthon.sandbox_spei.validation.ValidadorDeReglas;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,8 +33,11 @@ public class OperacionController {
     public ResponseEntity<?> crearOperacion(
             @RequestHeader(value = "Clave-Idempotencia", required = false) String claveIdempotencia,
             @RequestHeader(value = "X-Escenario-Forzado", required = false) String escenarioForzado,
-            @RequestBody PeticionPagoDTO peticion) {
+            @RequestBody(required = false) PeticionPagoDTO peticion) {
 
+        if (peticion == null) {
+            return error(422, null, List.of(new ErrorDetalleDTO(null, null, "El cuerpo de la solicitud es obligatorio")));
+        }
         String ref = peticion.getReferenciaSeguimiento();
 
         List<ErrorDetalleDTO> erroresEncabezado = validador.validarEncabezados(claveIdempotencia, escenarioForzado);
@@ -39,20 +45,17 @@ public class OperacionController {
             return error(422, ref, erroresEncabezado);
         }
 
-        String hash = motorService.calcularHash(peticion);
+        String hash = huella(peticion);
 
         ResponseEntity<?> reintento = verificarReintentoIdempotente(claveIdempotencia, hash, ref);
         if (reintento != null) {
             return reintento;
         }
 
-        // Validación sintáctica en capa de borde (V01 a V19)
         List<ErrorDetalleDTO> errores = validador.validar(peticion);
 
-        // V12: Verificar si la referencia ya existe (solo si pasó el formato V11)
-        if (ref != null && ref.matches("[a-zA-Z0-9]{1,30}") && motorService.existeReferencia(ref)) {
-            errores.add(new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
-                    "La referencia de seguimiento ya fue registrada previamente"));
+        if (motorService.existeReferencia(ref)) {
+            errores.add(referenciaDuplicada());
         }
 
         if (!errores.isEmpty()) {
@@ -60,15 +63,14 @@ public class OperacionController {
         }
 
         try {
-            RespuestaOperacionDTO creada = motorService.procesarPago(peticion, claveIdempotencia, hash, escenarioForzado);
+            RespuestaOperacionDTO creada = motorService.procesarPago(aComando(peticion), claveIdempotencia, hash, escenarioForzado);
             return ResponseEntity.status(201).body(creada);
         } catch (DataIntegrityViolationException e) {
             ResponseEntity<?> carrera = verificarReintentoIdempotente(claveIdempotencia, hash, ref);
             if (carrera != null) {
                 return carrera;
             }
-            return error(422, ref, List.of(new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
-                    "La referencia de seguimiento ya fue registrada previamente")));
+            return error(422, ref, List.of(referenciaDuplicada()));
         }
     }
 
@@ -95,24 +97,25 @@ public class OperacionController {
     }
 
     @PatchMapping("/operaciones/{id}/estado")
-    public ResponseEntity<?> cambiarEstado(@PathVariable String id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> cambiarEstado(@PathVariable String id, @RequestBody(required = false) Map<String, String> body) {
         Long idNumerico = extraerIdNumerico(id);
         if (idNumerico == null) {
             return noEncontrado();
         }
+        Map<String, String> datos = body == null ? Map.of() : body;
 
-        String motivo = body.get("motivo");
+        String motivo = datos.get("motivo");
         if (motivo != null && motivo.length() > 10) {
             return error(422, null, List.of(new ErrorDetalleDTO(null, "motivo", "El motivo admite máximo 10 caracteres")));
         }
 
         try {
-            Optional<RespuestaOperacionDTO> resultado = motorService.cambiarEstado(idNumerico, body.get("nuevoEstado"), motivo);
+            Optional<RespuestaOperacionDTO> resultado = motorService.cambiarEstado(idNumerico, datos.get("nuevoEstado"), motivo);
             if (resultado.isEmpty()) {
                 return noEncontrado();
             }
             return ResponseEntity.ok(resultado.get());
-        } catch (IllegalStateException e) {
+        } catch (MotorDePagosService.TransicionInvalidaException e) {
             Optional<RespuestaOperacionDTO> opActual = motorService.consultarPorId(idNumerico);
             String ref = opActual.isPresent() ? opActual.get().getReferenciaSeguimiento() : null;
             return error(422, ref, List.of(new ErrorDetalleDTO("PRX-014", "estado", "Transición de estado no permitida")));
@@ -135,10 +138,84 @@ public class OperacionController {
                 return ResponseEntity.ok(existente.get());
             }
             return null;
-        } catch (IllegalStateException e) {
+        } catch (MotorDePagosService.ClaveReutilizadaException e) {
             return error(409, ref, List.of(new ErrorDetalleDTO("PRX-015",
                     "Clave-Idempotencia", "Clave de idempotencia reutilizada con cuerpo distinto")));
         }
+    }
+
+    private ComandoPago aComando(PeticionPagoDTO req) {
+        PeticionPagoDTO.EmisorDTO emisor = req.getEmisor();
+        PeticionPagoDTO.ReceptorDTO receptor = req.getReceptor();
+        PeticionPagoDTO.ImporteDTO importe = req.getImporte();
+        PeticionPagoDTO.DocumentoIdentidadDTO doc = emisor.getDocumentoIdentidad();
+        String documento = doc == null ? null : doc.getTipo() + ":" + doc.getNumero();
+        return new ComandoPago(
+                req.getTipoOperacion(),
+                req.getReferenciaSeguimiento(),
+                importe.getValor(),
+                importe.getDivisa(),
+                emisor.getNombre(),
+                emisor.getInstitucion(),
+                emisor.getCuenta(),
+                emisor.getSucursal(),
+                documento,
+                receptor.getNombre(),
+                receptor.getInstitucion(),
+                receptor.getCuenta(),
+                req.getConcepto(),
+                req.getFolioNumerico());
+    }
+
+    private String huella(PeticionPagoDTO req) {
+        PeticionPagoDTO.EmisorDTO emisor = req.getEmisor();
+        PeticionPagoDTO.ReceptorDTO receptor = req.getReceptor();
+        PeticionPagoDTO.ImporteDTO importe = req.getImporte();
+        PeticionPagoDTO.DocumentoIdentidadDTO doc = emisor != null ? emisor.getDocumentoIdentidad() : null;
+
+        String valorNormalizado = (importe != null && importe.getValor() != null)
+                ? importe.getValor().stripTrailingZeros().toPlainString()
+                : "";
+
+        String cadena = String.join("|",
+                texto(req.getTipoOperacion()),
+                texto(req.getReferenciaSeguimiento()),
+                valorNormalizado,
+                texto(importe != null ? importe.getDivisa() : null),
+                texto(emisor != null ? emisor.getInstitucion() : null),
+                texto(emisor != null ? emisor.getCuenta() : null),
+                texto(emisor != null ? emisor.getNombre() : null),
+                texto(emisor != null ? emisor.getIdentificacionFiscal() : null),
+                texto(emisor != null ? emisor.getSucursal() : null),
+                texto(doc != null ? doc.getTipo() : null),
+                texto(doc != null ? doc.getNumero() : null),
+                texto(receptor != null ? receptor.getInstitucion() : null),
+                texto(receptor != null ? receptor.getCuenta() : null),
+                texto(receptor != null ? receptor.getNombre() : null),
+                texto(req.getConcepto()),
+                req.getFolioNumerico() != null ? String.valueOf(req.getFolioNumerico()) : ""
+        );
+
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = md.digest(cadena.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : bytes) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("Error al generar el hash SHA-256 de la petición", e);
+        }
+    }
+
+    private String texto(String valor) {
+        return valor == null ? "" : valor;
+    }
+
+    private ErrorDetalleDTO referenciaDuplicada() {
+        return new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
+                "La referencia de seguimiento ya fue registrada previamente");
     }
 
     private ResponseEntity<?> noEncontrado() {

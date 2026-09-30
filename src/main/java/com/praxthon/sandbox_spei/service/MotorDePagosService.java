@@ -1,6 +1,5 @@
 package com.praxthon.sandbox_spei.service;
 
-import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
 import com.praxthon.sandbox_spei.dto.RespuestaOperacionDTO;
 import com.praxthon.sandbox_spei.entity.ClaveIdempotencia;
 import com.praxthon.sandbox_spei.entity.Operacion;
@@ -8,20 +7,49 @@ import com.praxthon.sandbox_spei.entity.Transicion;
 import com.praxthon.sandbox_spei.repository.ClaveIdempotenciaRepository;
 import com.praxthon.sandbox_spei.repository.OperacionRepository;
 import com.praxthon.sandbox_spei.repository.TransicionRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
 public class MotorDePagosService {
+
+    public record ComandoPago(
+            String tipoOperacion,
+            String referenciaSeguimiento,
+            BigDecimal importeValor,
+            String importeDivisa,
+            String emisorNombre,
+            String emisorInstitucion,
+            String emisorCuenta,
+            String emisorSucursal,
+            String emisorDocumento,
+            String receptorNombre,
+            String receptorInstitucion,
+            String receptorCuenta,
+            String concepto,
+            Long folioNumerico) {
+    }
+
+    public static class TransicionInvalidaException extends RuntimeException {
+        public TransicionInvalidaException(String origen, String destino) {
+            super("Transición no permitida: " + origen + " -> " + destino);
+        }
+    }
+
+    public static class ClaveReutilizadaException extends RuntimeException {
+        public ClaveReutilizadaException() {
+            super("Clave de idempotencia reutilizada con cuerpo distinto");
+        }
+    }
 
     private final OperacionRepository operacionRepository;
     private final TransicionRepository transicionRepository;
@@ -42,6 +70,10 @@ public class MotorDePagosService {
         this.operacionRepository = operacionRepository;
         this.transicionRepository = transicionRepository;
         this.idempotenciaRepository = idempotenciaRepository;
+    }
+
+    public static boolean transicionPermitida(String origen, String destino) {
+        return destino != null && TRANSICIONES_PERMITIDAS.getOrDefault(origen, Set.of()).contains(destino);
     }
 
     public boolean existeReferencia(String referenciaSeguimiento) {
@@ -69,87 +101,95 @@ public class MotorDePagosService {
         }
         ClaveIdempotencia idem = idemOpt.get();
         if (!idem.getHashCuerpo().equals(hash)) {
-            throw new IllegalStateException("PRX-015");
+            throw new ClaveReutilizadaException();
         }
         return consultarPorId(idem.getOperacionId());
     }
 
     @Transactional
-    public RespuestaOperacionDTO procesarPago(PeticionPagoDTO req, String claveIdem, String hashCuerpo, String escenarioForzado) {
+    public RespuestaOperacionDTO procesarPago(ComandoPago cmd, String claveIdem, String hashCuerpo, String escenarioForzado) {
         Operacion op = new Operacion();
-        op.setTipoOperacion(req.getTipoOperacion());
+        op.setTipoOperacion(cmd.tipoOperacion());
         op.setEstadoActual("RECIBIDO");
 
-        op.setEmisorNombre(req.getEmisor().getNombre());
-        op.setEmisorInstitucion(req.getEmisor().getInstitucion());
-        op.setEmisorCuenta(req.getEmisor().getCuenta());
-        op.setEmisorSucursal(req.getEmisor().getSucursal());
-        if (req.getEmisor().getDocumentoIdentidad() != null) {
-            op.setEmisorDocumento(req.getEmisor().getDocumentoIdentidad().getTipo() + ":" + req.getEmisor().getDocumentoIdentidad().getNumero());
-        }
+        op.setEmisorNombre(cmd.emisorNombre());
+        op.setEmisorInstitucion(cmd.emisorInstitucion());
+        op.setEmisorCuenta(cmd.emisorCuenta());
+        op.setEmisorSucursal(cmd.emisorSucursal());
+        op.setEmisorDocumento(cmd.emisorDocumento());
 
-        op.setReceptorNombre(req.getReceptor().getNombre());
-        op.setReceptorInstitucion(req.getReceptor().getInstitucion());
-        op.setReceptorCuenta(req.getReceptor().getCuenta());
+        op.setReceptorNombre(cmd.receptorNombre());
+        op.setReceptorInstitucion(cmd.receptorInstitucion());
+        op.setReceptorCuenta(cmd.receptorCuenta());
 
-        op.setImporteValor(req.getImporte().getValor().setScale(2, RoundingMode.HALF_UP));
-        op.setImporteDivisa(req.getImporte().getDivisa());
-        op.setConcepto(req.getConcepto());
-        op.setFolioNumerico(req.getFolioNumerico());
-        op.setReferenciaSeguimiento(req.getReferenciaSeguimiento());
-        op.setClaveIdempotencia(claveIdem);
+        op.setImporteValor(cmd.importeValor().setScale(2, RoundingMode.HALF_UP));
+        op.setImporteDivisa(cmd.importeDivisa());
+        op.setConcepto(cmd.concepto());
+        op.setFolioNumerico(cmd.folioNumerico());
+        op.setReferenciaSeguimiento(cmd.referenciaSeguimiento());
 
         op = operacionRepository.save(op);
         registrarTransicion(op.getId(), null, "RECIBIDO", null);
 
-        if (claveIdem != null && !claveIdem.trim().isEmpty()) {
-            ClaveIdempotencia idem = new ClaveIdempotencia();
-            idem.setClave(claveIdem);
-            idem.setOperacionId(op.getId());
-            idem.setHashCuerpo(hashCuerpo);
-            idempotenciaRepository.save(idem);
+        RespuestaOperacionDTO respuestaRecibido = consultarPorId(op.getId()).orElseThrow();
+
+        registrarClaveIdempotencia(op.getId(), claveIdem, hashCuerpo);
+
+        String escenario = resolverEscenario(op, escenarioForzado);
+        aplicarTransicion(op, "EN_PROCESO", "S05".equals(escenario) ? "PRX-023" : null);
+        switch (escenario) {
+            case "S02" -> aplicarTransicion(op, "DEVUELTO", "PRX-020");
+            case "S03" -> aplicarTransicion(op, "DEVUELTO", "PRX-021");
+            case "S04" -> aplicarTransicion(op, "DEVUELTO", "PRX-022");
+            case "S05" -> { }
+            case "S06" -> aplicarTransicion(op, "EN_INVESTIGACION", "PRX-024");
+            default -> aplicarTransicion(op, "LIQUIDADO", null);
         }
 
-        String digitos14a17 = op.getReceptorCuenta().substring(13, 17);
-        boolean esEscenarioSinRespuesta = "S05".equals(escenarioForzado)
-                || ((escenarioForzado == null || escenarioForzado.isBlank()) && "9005".equals(digitos14a17));
+        return respuestaRecibido;
+    }
 
-        if (esEscenarioSinRespuesta) {
-            aplicarTransicion(op, "EN_PROCESO", "PRX-023");
-            return consultarPorId(op.getId()).orElseThrow();
-        }
-
-        aplicarTransicion(op, "EN_PROCESO", null);
-
+    private String resolverEscenario(Operacion op, String escenarioForzado) {
         if (escenarioForzado != null && !escenarioForzado.isBlank()) {
-            switch (escenarioForzado) {
-                case "S02" -> aplicarTransicion(op, "DEVUELTO", "PRX-020");
-                case "S03" -> aplicarTransicion(op, "DEVUELTO", "PRX-021");
-                case "S04" -> aplicarTransicion(op, "DEVUELTO", "PRX-022");
-                case "S06" -> aplicarTransicion(op, "EN_INVESTIGACION", "PRX-024");
-                default -> aplicarTransicion(op, "LIQUIDADO", null);
-            }
-        } else if ("805".equals(op.getReceptorInstitucion()) || "9004".equals(digitos14a17)) {
-            aplicarTransicion(op, "DEVUELTO", "PRX-022");
-        } else if ("9002".equals(digitos14a17)) {
-            aplicarTransicion(op, "DEVUELTO", "PRX-020");
-        } else if ("9003".equals(digitos14a17)) {
-            aplicarTransicion(op, "DEVUELTO", "PRX-021");
-        } else if ("9006".equals(digitos14a17)) {
-            aplicarTransicion(op, "EN_INVESTIGACION", "PRX-024");
-        } else {
-            aplicarTransicion(op, "LIQUIDADO", null);
+            return escenarioForzado;
         }
+        if ("805".equals(op.getReceptorInstitucion())) {
+            return "S04";
+        }
+        return switch (op.getReceptorCuenta().substring(13, 17)) {
+            case "9002" -> "S02";
+            case "9003" -> "S03";
+            case "9004" -> "S04";
+            case "9005" -> "S05";
+            case "9006" -> "S06";
+            default -> "S01";
+        };
+    }
 
-        return consultarPorId(op.getId()).orElseThrow();
+    private void registrarClaveIdempotencia(Long operacionId, String clave, String hashCuerpo) {
+        if (clave == null || clave.trim().isEmpty()) {
+            return;
+        }
+        Optional<ClaveIdempotencia> previa = idempotenciaRepository.findById(clave);
+        if (previa.isPresent()) {
+            if (previa.get().getFechaExpiracion().isAfter(LocalDateTime.now())) {
+                throw new DataIntegrityViolationException("Clave de idempotencia registrada por otra petición");
+            }
+            idempotenciaRepository.delete(previa.get());
+            idempotenciaRepository.flush();
+        }
+        ClaveIdempotencia idem = new ClaveIdempotencia();
+        idem.setClave(clave);
+        idem.setOperacionId(operacionId);
+        idem.setHashCuerpo(hashCuerpo);
+        idempotenciaRepository.save(idem);
     }
 
     @Transactional
     public void aplicarTransicion(Operacion op, String nuevoEstado, String motivo) {
         String estadoActual = op.getEstadoActual();
-        Set<String> permitidos = TRANSICIONES_PERMITIDAS.getOrDefault(estadoActual, Set.of());
-        if (nuevoEstado == null || !permitidos.contains(nuevoEstado)) {
-            throw new IllegalStateException("PRX-014");
+        if (!transicionPermitida(estadoActual, nuevoEstado)) {
+            throw new TransicionInvalidaException(estadoActual, nuevoEstado);
         }
         op.setEstadoActual(nuevoEstado);
         op.setMotivoActual(motivo);
@@ -202,51 +242,5 @@ public class MotorDePagosService {
         respuesta.put("totalElementos", page.getTotalElements());
         respuesta.put("totalPaginas", page.getTotalPages());
         return respuesta;
-    }
-
-    public String calcularHash(PeticionPagoDTO req) {
-        PeticionPagoDTO.EmisorDTO emisor = req.getEmisor();
-        PeticionPagoDTO.ReceptorDTO receptor = req.getReceptor();
-        PeticionPagoDTO.ImporteDTO importe = req.getImporte();
-        PeticionPagoDTO.DocumentoIdentidadDTO doc = emisor != null ? emisor.getDocumentoIdentidad() : null;
-
-        String valorNormalizado = (importe != null && importe.getValor() != null)
-                ? importe.getValor().stripTrailingZeros().toPlainString()
-                : "";
-
-        String cadena = String.join("|",
-                textoSeguro(req.getTipoOperacion()),
-                textoSeguro(req.getReferenciaSeguimiento()),
-                valorNormalizado,
-                textoSeguro(importe != null ? importe.getDivisa() : null),
-                textoSeguro(emisor != null ? emisor.getInstitucion() : null),
-                textoSeguro(emisor != null ? emisor.getCuenta() : null),
-                textoSeguro(emisor != null ? emisor.getNombre() : null),
-                textoSeguro(emisor != null ? emisor.getIdentificacionFiscal() : null),
-                textoSeguro(emisor != null ? emisor.getSucursal() : null),
-                textoSeguro(doc != null ? doc.getTipo() : null),
-                textoSeguro(doc != null ? doc.getNumero() : null),
-                textoSeguro(receptor != null ? receptor.getInstitucion() : null),
-                textoSeguro(receptor != null ? receptor.getCuenta() : null),
-                textoSeguro(receptor != null ? receptor.getNombre() : null),
-                textoSeguro(req.getConcepto()),
-                req.getFolioNumerico() != null ? String.valueOf(req.getFolioNumerico()) : ""
-        );
-
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = md.digest(cadena.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (byte b : bytes) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new IllegalStateException("Error al generar el hash SHA-256 de la petición", e);
-        }
-    }
-
-    private String textoSeguro(String valor) {
-        return valor == null ? "" : valor;
     }
 }

@@ -38,7 +38,6 @@ public class ValidadorDeReglas {
     public List<ErrorDetalleDTO> validar(PeticionPagoDTO req) {
         List<ErrorDetalleDTO> errores = new ArrayList<>();
 
-        
         String tipo = req.getTipoOperacion();
         boolean esT2T = "T2T".equals(tipo);
         boolean esVNT = "VNT".equals(tipo);
@@ -46,7 +45,6 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-031", "tipoOperacion", "El tipo de operación debe ser T2T o VNT"));
         }
 
-        
         if (req.getReceptor() != null) {
             String recNombre = req.getReceptor().getNombre();
             String recInst = req.getReceptor().getInstitucion();
@@ -73,7 +71,6 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-011", "receptor", "Datos del receptor obligatorios"));
         }
 
-        
         if (req.getEmisor() != null) {
             String emiNombre = req.getEmisor().getNombre();
             String emiInst = req.getEmisor().getInstitucion();
@@ -107,8 +104,7 @@ public class ValidadorDeReglas {
                         errores.add(new ErrorDetalleDTO("PRX-013", "emisor.cuenta", "La cuenta emisora y receptora no pueden ser iguales"));
                     }
                 }
-                
-                if (emiSucursal != null && !emiSucursal.isEmpty()) {
+                if (emiSucursal != null) {
                     errores.add(new ErrorDetalleDTO("PRX-012", "emisor.sucursal", "La sucursal no debe enviarse en T2T"));
                 }
                 if (emiDoc != null) {
@@ -128,7 +124,7 @@ public class ValidadorDeReglas {
                 } else if (emiDoc.getTipo().length() + 1 + emiDoc.getNumero().length() > 30) {
                     errores.add(new ErrorDetalleDTO(null, "emisor.documentoIdentidad", "Tipo y número del documento exceden 30 caracteres"));
                 }
-                if (emiCuenta != null && !emiCuenta.trim().isEmpty()) {
+                if (emiCuenta != null) {
                     errores.add(new ErrorDetalleDTO("PRX-012", "emisor.cuenta", "La cuenta emisora no debe enviarse en VNT"));
                 }
             }
@@ -136,7 +132,6 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-011", "emisor", "Datos del emisor obligatorios"));
         }
 
-        
         if (req.getImporte() != null) {
             BigDecimal valor = req.getImporte().getValor();
             String divisa = req.getImporte().getDivisa();
@@ -153,17 +148,14 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-004", "importe.valor", "El importe es obligatorio"));
         }
 
-        
         if (req.getConcepto() == null || req.getConcepto().trim().isEmpty() || req.getConcepto().length() > 40) {
             errores.add(new ErrorDetalleDTO("PRX-007", "concepto", "Concepto obligatorio entre 1 y 40 caracteres"));
         }
 
-       
         if (req.getFolioNumerico() == null || req.getFolioNumerico() < 1 || req.getFolioNumerico() > 9999999) {
             errores.add(new ErrorDetalleDTO("PRX-008", "folioNumerico", "El folio numérico debe estar entre 1 y 9,999,999"));
         }
 
-       
         String ref = req.getReferenciaSeguimiento();
         if (ref == null || !ref.matches("[a-zA-Z0-9]{1,30}")) {
             errores.add(new ErrorDetalleDTO("PRX-009", "referenciaSeguimiento", "Referencia obligatoria, alfanumérica de 1 a 30 caracteres"));
