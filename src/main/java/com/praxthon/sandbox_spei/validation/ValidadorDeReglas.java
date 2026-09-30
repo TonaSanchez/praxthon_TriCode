@@ -1,9 +1,7 @@
 package com.praxthon.sandbox_spei.validation;
-
 import com.praxthon.sandbox_spei.dto.ErrorDetalleDTO;
 import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
 import org.springframework.stereotype.Component;
-
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,6 +22,9 @@ public class ValidadorDeReglas {
 
     private static final Set<String> ESCENARIOS_VALIDOS = Set.of("S01", "S02", "S03", "S04", "S05", "S06");
 
+    private static final BigDecimal IMPORTE_MAXIMO = new BigDecimal("1000000.00");
+    private static final int DIGITOS_ENTEROS_MAXIMOS = 7;
+
     public List<ErrorDetalleDTO> validarEncabezados(String claveIdem, String escenario) {
         List<ErrorDetalleDTO> errores = new ArrayList<>();
         if (escenario != null && !escenario.isBlank() && !ESCENARIOS_VALIDOS.contains(escenario)) {
@@ -38,7 +39,6 @@ public class ValidadorDeReglas {
     public List<ErrorDetalleDTO> validar(PeticionPagoDTO req) {
         List<ErrorDetalleDTO> errores = new ArrayList<>();
 
-        
         String tipo = req.getTipoOperacion();
         boolean esT2T = "T2T".equals(tipo);
         boolean esVNT = "VNT".equals(tipo);
@@ -46,7 +46,6 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-031", "tipoOperacion", "El tipo de operación debe ser T2T o VNT"));
         }
 
-        
         if (req.getReceptor() != null) {
             String recNombre = req.getReceptor().getNombre();
             String recInst = req.getReceptor().getInstitucion();
@@ -73,7 +72,6 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-011", "receptor", "Datos del receptor obligatorios"));
         }
 
-        
         if (req.getEmisor() != null) {
             String emiNombre = req.getEmisor().getNombre();
             String emiInst = req.getEmisor().getInstitucion();
@@ -81,6 +79,10 @@ public class ValidadorDeReglas {
             String emiSucursal = req.getEmisor().getSucursal();
             PeticionPagoDTO.DocumentoIdentidadDTO emiDoc = req.getEmisor().getDocumentoIdentidad();
             boolean instEmisoraValida = emiInst != null && CATALOGO_INSTITUCIONES.containsKey(emiInst) && !"804".equals(emiInst);
+
+            for (String campoExtra : req.getEmisor().getCamposDesconocidos().keySet()) {
+                errores.add(new ErrorDetalleDTO(null, "emisor." + campoExtra, "Campo no permitido en el emisor"));
+            }
 
             if (emiNombre == null || emiNombre.trim().isEmpty() || emiNombre.length() > 40) {
                 errores.add(new ErrorDetalleDTO("PRX-011", "emisor.nombre", "Nombre del emisor obligatorio (1 a 40 caracteres)"));
@@ -107,8 +109,7 @@ public class ValidadorDeReglas {
                         errores.add(new ErrorDetalleDTO("PRX-013", "emisor.cuenta", "La cuenta emisora y receptora no pueden ser iguales"));
                     }
                 }
-                
-                if (emiSucursal != null && !emiSucursal.isEmpty()) {
+                if (emiSucursal != null) {
                     errores.add(new ErrorDetalleDTO("PRX-012", "emisor.sucursal", "La sucursal no debe enviarse en T2T"));
                 }
                 if (emiDoc != null) {
@@ -128,22 +129,24 @@ public class ValidadorDeReglas {
                 } else if (emiDoc.getTipo().length() + 1 + emiDoc.getNumero().length() > 30) {
                     errores.add(new ErrorDetalleDTO(null, "emisor.documentoIdentidad", "Tipo y número del documento exceden 30 caracteres"));
                 }
-                if (emiCuenta != null && !emiCuenta.trim().isEmpty()) {
+                if (emiCuenta != null) {
                     errores.add(new ErrorDetalleDTO("PRX-012", "emisor.cuenta", "La cuenta emisora no debe enviarse en VNT"));
+                }
+                if (req.getEmisor().getIdentificacionFiscal() != null) {
+                    errores.add(new ErrorDetalleDTO("PRX-012", "emisor.identificacionFiscal", "La identificación fiscal no debe enviarse en VNT"));
                 }
             }
         } else {
             errores.add(new ErrorDetalleDTO("PRX-011", "emisor", "Datos del emisor obligatorios"));
         }
 
-        
         if (req.getImporte() != null) {
             BigDecimal valor = req.getImporte().getValor();
             String divisa = req.getImporte().getDivisa();
 
-            if (valor == null || valor.compareTo(BigDecimal.ZERO) <= 0) {
+            if (valor == null || valor.signum() <= 0) {
                 errores.add(new ErrorDetalleDTO("PRX-004", "importe.valor", "El importe debe ser mayor que cero"));
-            } else if (valor.stripTrailingZeros().scale() > 2 || valor.compareTo(new BigDecimal("1000000.00")) > 0) {
+            } else if (excedeMagnitud(valor) || valor.compareTo(IMPORTE_MAXIMO) > 0 || valor.stripTrailingZeros().scale() > 2) {
                 errores.add(new ErrorDetalleDTO("PRX-005", "importe.valor", "Importe máximo 1,000,000.00 y máximo 2 decimales"));
             }
             if (!"MXN".equals(divisa)) {
@@ -153,23 +156,24 @@ public class ValidadorDeReglas {
             errores.add(new ErrorDetalleDTO("PRX-004", "importe.valor", "El importe es obligatorio"));
         }
 
-        
         if (req.getConcepto() == null || req.getConcepto().trim().isEmpty() || req.getConcepto().length() > 40) {
             errores.add(new ErrorDetalleDTO("PRX-007", "concepto", "Concepto obligatorio entre 1 y 40 caracteres"));
         }
 
-       
         if (req.getFolioNumerico() == null || req.getFolioNumerico() < 1 || req.getFolioNumerico() > 9999999) {
             errores.add(new ErrorDetalleDTO("PRX-008", "folioNumerico", "El folio numérico debe estar entre 1 y 9,999,999"));
         }
 
-       
         String ref = req.getReferenciaSeguimiento();
         if (ref == null || !ref.matches("[a-zA-Z0-9]{1,30}")) {
             errores.add(new ErrorDetalleDTO("PRX-009", "referenciaSeguimiento", "Referencia obligatoria, alfanumérica de 1 a 30 caracteres"));
         }
 
         return errores;
+    }
+
+    private boolean excedeMagnitud(BigDecimal valor) {
+        return (long) valor.precision() - (long) valor.scale() > DIGITOS_ENTEROS_MAXIMOS;
     }
 
     public boolean validarDigitoVerificador(String clabe) {

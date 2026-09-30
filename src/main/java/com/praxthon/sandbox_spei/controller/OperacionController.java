@@ -3,6 +3,7 @@ package com.praxthon.sandbox_spei.controller;
 import com.praxthon.sandbox_spei.dto.ErrorDetalleDTO;
 import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
 import com.praxthon.sandbox_spei.dto.RespuestaOperacionDTO;
+import com.praxthon.sandbox_spei.mapper.PeticionMapper;
 import com.praxthon.sandbox_spei.service.MotorDePagosService;
 import com.praxthon.sandbox_spei.validation.ValidadorDeReglas;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -30,8 +31,11 @@ public class OperacionController {
     public ResponseEntity<?> crearOperacion(
             @RequestHeader(value = "Clave-Idempotencia", required = false) String claveIdempotencia,
             @RequestHeader(value = "X-Escenario-Forzado", required = false) String escenarioForzado,
-            @RequestBody PeticionPagoDTO peticion) {
+            @RequestBody(required = false) PeticionPagoDTO peticion) {
 
+        if (peticion == null) {
+            return error(422, null, List.of(new ErrorDetalleDTO(null, null, "El cuerpo de la solicitud es obligatorio")));
+        }
         String ref = peticion.getReferenciaSeguimiento();
 
         List<ErrorDetalleDTO> erroresEncabezado = validador.validarEncabezados(claveIdempotencia, escenarioForzado);
@@ -39,20 +43,17 @@ public class OperacionController {
             return error(422, ref, erroresEncabezado);
         }
 
-        String hash = motorService.calcularHash(peticion);
+        String hash = PeticionMapper.huella(peticion);
 
         ResponseEntity<?> reintento = verificarReintentoIdempotente(claveIdempotencia, hash, ref);
         if (reintento != null) {
             return reintento;
         }
 
-        // Validación sintáctica en capa de borde (V01 a V19)
         List<ErrorDetalleDTO> errores = validador.validar(peticion);
 
-        // V12: Verificar si la referencia ya existe (solo si pasó el formato V11)
-        if (ref != null && ref.matches("[a-zA-Z0-9]{1,30}") && motorService.existeReferencia(ref)) {
-            errores.add(new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
-                    "La referencia de seguimiento ya fue registrada previamente"));
+        if (motorService.existeReferencia(ref)) {
+            errores.add(referenciaDuplicada());
         }
 
         if (!errores.isEmpty()) {
@@ -60,15 +61,15 @@ public class OperacionController {
         }
 
         try {
-            RespuestaOperacionDTO creada = motorService.procesarPago(peticion, claveIdempotencia, hash, escenarioForzado);
+            RespuestaOperacionDTO creada = motorService.procesarPago(
+                    PeticionMapper.aComando(peticion), claveIdempotencia, hash, escenarioForzado);
             return ResponseEntity.status(201).body(creada);
         } catch (DataIntegrityViolationException e) {
             ResponseEntity<?> carrera = verificarReintentoIdempotente(claveIdempotencia, hash, ref);
             if (carrera != null) {
                 return carrera;
             }
-            return error(422, ref, List.of(new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
-                    "La referencia de seguimiento ya fue registrada previamente")));
+            return error(422, ref, List.of(referenciaDuplicada()));
         }
     }
 
@@ -95,24 +96,25 @@ public class OperacionController {
     }
 
     @PatchMapping("/operaciones/{id}/estado")
-    public ResponseEntity<?> cambiarEstado(@PathVariable String id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<?> cambiarEstado(@PathVariable String id, @RequestBody(required = false) Map<String, String> body) {
         Long idNumerico = extraerIdNumerico(id);
         if (idNumerico == null) {
             return noEncontrado();
         }
+        Map<String, String> datos = body == null ? Map.of() : body;
 
-        String motivo = body.get("motivo");
+        String motivo = datos.get("motivo");
         if (motivo != null && motivo.length() > 10) {
             return error(422, null, List.of(new ErrorDetalleDTO(null, "motivo", "El motivo admite máximo 10 caracteres")));
         }
 
         try {
-            Optional<RespuestaOperacionDTO> resultado = motorService.cambiarEstado(idNumerico, body.get("nuevoEstado"), motivo);
+            Optional<RespuestaOperacionDTO> resultado = motorService.cambiarEstado(idNumerico, datos.get("nuevoEstado"), motivo);
             if (resultado.isEmpty()) {
                 return noEncontrado();
             }
             return ResponseEntity.ok(resultado.get());
-        } catch (IllegalStateException e) {
+        } catch (MotorDePagosService.TransicionInvalidaException e) {
             Optional<RespuestaOperacionDTO> opActual = motorService.consultarPorId(idNumerico);
             String ref = opActual.isPresent() ? opActual.get().getReferenciaSeguimiento() : null;
             return error(422, ref, List.of(new ErrorDetalleDTO("PRX-014", "estado", "Transición de estado no permitida")));
@@ -135,10 +137,15 @@ public class OperacionController {
                 return ResponseEntity.ok(existente.get());
             }
             return null;
-        } catch (IllegalStateException e) {
+        } catch (MotorDePagosService.ClaveReutilizadaException e) {
             return error(409, ref, List.of(new ErrorDetalleDTO("PRX-015",
                     "Clave-Idempotencia", "Clave de idempotencia reutilizada con cuerpo distinto")));
         }
+    }
+
+    private ErrorDetalleDTO referenciaDuplicada() {
+        return new ErrorDetalleDTO("PRX-010", "referenciaSeguimiento",
+                "La referencia de seguimiento ya fue registrada previamente");
     }
 
     private ResponseEntity<?> noEncontrado() {

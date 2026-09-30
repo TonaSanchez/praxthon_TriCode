@@ -1,6 +1,11 @@
 package com.praxthon.sandbox_spei.dto;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class PeticionPagoDTO {
     private String tipoOperacion;
@@ -18,6 +23,15 @@ public class PeticionPagoDTO {
         private String identificacionFiscal;
         private String sucursal;
         private DocumentoIdentidadDTO documentoIdentidad;
+        private final Map<String, Object> camposDesconocidos = new LinkedHashMap<>();
+
+        @JsonAnySetter
+        public void agregarCampoDesconocido(String nombre, Object valor) {
+            camposDesconocidos.put(nombre, valor);
+        }
+
+        @JsonIgnore
+        public Map<String, Object> getCamposDesconocidos() { return camposDesconocidos; }
 
         public String getInstitucion() { return institucion; }
         public void setInstitucion(String institucion) { this.institucion = institucion; }
