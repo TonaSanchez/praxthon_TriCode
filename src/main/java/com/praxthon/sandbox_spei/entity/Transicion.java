@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "transicion")
+@Table(name = "transicion", indexes = @Index(name = "idx_transicion_operacion", columnList = "operacion_id"))
 public class Transicion {
 
     @Id
@@ -33,7 +33,6 @@ public class Transicion {
         }
     }
 
-    // Getters y Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getOperacionId() { return operacionId; }

@@ -1,5 +1,4 @@
 package com.praxthon.sandbox_spei.controller;
-
 import com.praxthon.sandbox_spei.dto.ErrorDetalleDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +8,6 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,9 +22,26 @@ public class ManejadorErrores {
 
     private static final Pattern PROPIEDAD = Pattern.compile("\\[\"([^\"]+)\"\\]");
 
-    private static final Map<String, String> CODIGO_POR_CAMPO = Map.of(
-            "folioNumerico", "PRX-008",
-            "importe.valor", "PRX-004");
+    private static final Map<String, String> CODIGO_POR_CAMPO = Map.ofEntries(
+            Map.entry("tipoOperacion", "PRX-031"),
+            Map.entry("referenciaSeguimiento", "PRX-009"),
+            Map.entry("concepto", "PRX-007"),
+            Map.entry("folioNumerico", "PRX-008"),
+            Map.entry("importe", "PRX-004"),
+            Map.entry("importe.valor", "PRX-004"),
+            Map.entry("importe.divisa", "PRX-006"),
+            Map.entry("emisor", "PRX-011"),
+            Map.entry("emisor.nombre", "PRX-011"),
+            Map.entry("emisor.institucion", "PRX-003"),
+            Map.entry("emisor.cuenta", "PRX-001"),
+            Map.entry("emisor.sucursal", "PRX-011"),
+            Map.entry("emisor.documentoIdentidad", "PRX-011"),
+            Map.entry("emisor.documentoIdentidad.tipo", "PRX-011"),
+            Map.entry("emisor.documentoIdentidad.numero", "PRX-011"),
+            Map.entry("receptor", "PRX-011"),
+            Map.entry("receptor.nombre", "PRX-011"),
+            Map.entry("receptor.institucion", "PRX-003"),
+            Map.entry("receptor.cuenta", "PRX-001"));
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> jsonNoLegible(HttpMessageNotReadableException e) {

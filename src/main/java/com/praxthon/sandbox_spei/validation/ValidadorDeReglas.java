@@ -1,9 +1,7 @@
 package com.praxthon.sandbox_spei.validation;
-
 import com.praxthon.sandbox_spei.dto.ErrorDetalleDTO;
 import com.praxthon.sandbox_spei.dto.PeticionPagoDTO;
 import org.springframework.stereotype.Component;
-
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,6 +21,9 @@ public class ValidadorDeReglas {
             "805", "Banco Praxis Delta")));
 
     private static final Set<String> ESCENARIOS_VALIDOS = Set.of("S01", "S02", "S03", "S04", "S05", "S06");
+
+    private static final BigDecimal IMPORTE_MAXIMO = new BigDecimal("1000000.00");
+    private static final int DIGITOS_ENTEROS_MAXIMOS = 7;
 
     public List<ErrorDetalleDTO> validarEncabezados(String claveIdem, String escenario) {
         List<ErrorDetalleDTO> errores = new ArrayList<>();
@@ -79,6 +80,10 @@ public class ValidadorDeReglas {
             PeticionPagoDTO.DocumentoIdentidadDTO emiDoc = req.getEmisor().getDocumentoIdentidad();
             boolean instEmisoraValida = emiInst != null && CATALOGO_INSTITUCIONES.containsKey(emiInst) && !"804".equals(emiInst);
 
+            for (String campoExtra : req.getEmisor().getCamposDesconocidos().keySet()) {
+                errores.add(new ErrorDetalleDTO(null, "emisor." + campoExtra, "Campo no permitido en el emisor"));
+            }
+
             if (emiNombre == null || emiNombre.trim().isEmpty() || emiNombre.length() > 40) {
                 errores.add(new ErrorDetalleDTO("PRX-011", "emisor.nombre", "Nombre del emisor obligatorio (1 a 40 caracteres)"));
             }
@@ -127,6 +132,9 @@ public class ValidadorDeReglas {
                 if (emiCuenta != null) {
                     errores.add(new ErrorDetalleDTO("PRX-012", "emisor.cuenta", "La cuenta emisora no debe enviarse en VNT"));
                 }
+                if (req.getEmisor().getIdentificacionFiscal() != null) {
+                    errores.add(new ErrorDetalleDTO("PRX-012", "emisor.identificacionFiscal", "La identificación fiscal no debe enviarse en VNT"));
+                }
             }
         } else {
             errores.add(new ErrorDetalleDTO("PRX-011", "emisor", "Datos del emisor obligatorios"));
@@ -136,9 +144,9 @@ public class ValidadorDeReglas {
             BigDecimal valor = req.getImporte().getValor();
             String divisa = req.getImporte().getDivisa();
 
-            if (valor == null || valor.compareTo(BigDecimal.ZERO) <= 0) {
+            if (valor == null || valor.signum() <= 0) {
                 errores.add(new ErrorDetalleDTO("PRX-004", "importe.valor", "El importe debe ser mayor que cero"));
-            } else if (valor.stripTrailingZeros().scale() > 2 || valor.compareTo(new BigDecimal("1000000.00")) > 0) {
+            } else if (excedeMagnitud(valor) || valor.compareTo(IMPORTE_MAXIMO) > 0 || valor.stripTrailingZeros().scale() > 2) {
                 errores.add(new ErrorDetalleDTO("PRX-005", "importe.valor", "Importe máximo 1,000,000.00 y máximo 2 decimales"));
             }
             if (!"MXN".equals(divisa)) {
@@ -162,6 +170,10 @@ public class ValidadorDeReglas {
         }
 
         return errores;
+    }
+
+    private boolean excedeMagnitud(BigDecimal valor) {
+        return (long) valor.precision() - (long) valor.scale() > DIGITOS_ENTEROS_MAXIMOS;
     }
 
     public boolean validarDigitoVerificador(String clabe) {

@@ -182,7 +182,7 @@ public class MotorDePagosService {
         idem.setClave(clave);
         idem.setOperacionId(operacionId);
         idem.setHashCuerpo(hashCuerpo);
-        idempotenciaRepository.save(idem);
+        idempotenciaRepository.saveAndFlush(idem);
     }
 
     @Transactional
@@ -199,7 +199,7 @@ public class MotorDePagosService {
 
     @Transactional
     public Optional<RespuestaOperacionDTO> cambiarEstado(Long id, String nuevoEstado, String motivo) {
-        Optional<Operacion> op = operacionRepository.findById(id);
+        Optional<Operacion> op = operacionRepository.buscarParaActualizar(id);
         if (op.isEmpty()) {
             return Optional.empty();
         }
