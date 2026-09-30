@@ -133,6 +133,13 @@ class ValidadorDeReglasTest {
     }
 
     @Test
+    void v07_importeGigante() {
+        PeticionPagoDTO p = t2tValida();
+        p.getImporte().setValor(new BigDecimal("1E+999999999"));
+        assertError(p, "PRX-005", "importe.valor");
+    }
+
+    @Test
     void v07_limitesValidos() {
         PeticionPagoDTO p = t2tValida();
         p.getImporte().setValor(new BigDecimal("1000000.00"));
@@ -259,6 +266,59 @@ class ValidadorDeReglasTest {
     }
 
     @Test
+    void v16_vntDocumentoSoloConTipo() {
+        PeticionPagoDTO p = vntValida();
+        PeticionPagoDTO.DocumentoIdentidadDTO documento = new PeticionPagoDTO.DocumentoIdentidadDTO();
+        documento.setTipo("INE");
+        p.getEmisor().setDocumentoIdentidad(documento);
+        assertError(p, "PRX-011", "emisor.documentoIdentidad");
+    }
+
+    @Test
+    void v16_vntDocumentoSoloConNumero() {
+        PeticionPagoDTO p = vntValida();
+        PeticionPagoDTO.DocumentoIdentidadDTO documento = new PeticionPagoDTO.DocumentoIdentidadDTO();
+        documento.setNumero("IDMEX1734558");
+        p.getEmisor().setDocumentoIdentidad(documento);
+        assertError(p, "PRX-011", "emisor.documentoIdentidad");
+    }
+
+    @Test
+    void vntConIdentificacionFiscal() {
+        PeticionPagoDTO p = vntValida();
+        p.getEmisor().setIdentificacionFiscal("RUDA900112HN4");
+        assertError(p, "PRX-012", "emisor.identificacionFiscal");
+    }
+
+    @Test
+    void campoDesconocidoEnEmisor() {
+        PeticionPagoDTO p = t2tValida();
+        p.getEmisor().agregarCampoDesconocido("sucrusal", "0417");
+        assertErrores(p, "null@emisor.sucrusal");
+    }
+
+    @Test
+    void emisorNulo() {
+        PeticionPagoDTO p = t2tValida();
+        p.setEmisor(null);
+        assertError(p, "PRX-011", "emisor");
+    }
+
+    @Test
+    void receptorNulo() {
+        PeticionPagoDTO p = t2tValida();
+        p.setReceptor(null);
+        assertError(p, "PRX-011", "receptor");
+    }
+
+    @Test
+    void importeNulo() {
+        PeticionPagoDTO p = t2tValida();
+        p.setImporte(null);
+        assertError(p, "PRX-004", "importe.valor");
+    }
+
+    @Test
     void v17_vntConCuentaEmisor() {
         PeticionPagoDTO p = vntValida();
         p.getEmisor().setCuenta(clabe("801", "0001"));
@@ -302,15 +362,19 @@ class ValidadorDeReglasTest {
         p.setConcepto("");
         p.setFolioNumerico(0L);
         p.getImporte().setDivisa("USD");
-        assertError(p, "PRX-007", "concepto");
-        assertError(p, "PRX-008", "folioNumerico");
-        assertError(p, "PRX-006", "importe.divisa");
+        assertErrores(p, "PRX-006@importe.divisa", "PRX-007@concepto", "PRX-008@folioNumerico");
     }
 
     private void assertError(PeticionPagoDTO p, String codigo, String campo) {
+        assertErrores(p, codigo + "@" + campo);
+    }
+
+    private void assertErrores(PeticionPagoDTO p, String... esperados) {
         List<ErrorDetalleDTO> errores = validador.validar(p);
-        boolean hay = errores.stream().anyMatch(e -> codigo.equals(e.getCodigo()) && campo.equals(e.getCampo()));
-        assertTrue(hay, "Se esperaba " + codigo + " en " + campo + " pero llegó: " + descripcion(errores));
+        List<String> actuales = errores.stream()
+                .map(e -> e.getCodigo() + "@" + e.getCampo())
+                .toList();
+        assertEquals(List.of(esperados), actuales, "Errores inesperados: " + descripcion(errores));
     }
 
     private String descripcion(List<ErrorDetalleDTO> errores) {

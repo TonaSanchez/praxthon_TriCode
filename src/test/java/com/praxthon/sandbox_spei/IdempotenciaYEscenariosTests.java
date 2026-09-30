@@ -1,21 +1,20 @@
 package com.praxthon.sandbox_spei;
 
+import com.praxthon.sandbox_spei.repository.OperacionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -25,13 +24,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class IdempotenciaYEscenariosTests {
 
     private static final String RUTA = "/api/v1/operaciones";
-    private static final Pattern ID = Pattern.compile("\"id\":\"(op_\\d+)\"");
-    private static final Pattern TOTAL = Pattern.compile("\"totalElementos\":(\\d+)");
     private static final String EMISOR = clabe("801", "0001");
     private static final String RECEPTOR = clabe("802", "0011");
 
     @Autowired
     private WebApplicationContext contexto;
+
+    @Autowired
+    private OperacionRepository operacionRepository;
 
     private MockMvc mvc;
 
@@ -82,26 +82,26 @@ class IdempotenciaYEscenariosTests {
 
     @Test
     void escenarioForzadoInvalido_422SinRegistrarLaOperacion() throws Exception {
-        int antes = total();
+        String referencia = ref();
         mvc.perform(post(RUTA)
-                        .contentType(MediaType.APPLICATION_JSON)
+                .contentType(APPLICATION_JSON)
                         .header("X-Escenario-Forzado", "S99")
-                        .content(cuerpo(ref(), "Luis Cano Mora", "802", "MXN")))
+                .content(cuerpo(referencia, "Luis Cano Mora", "802", "MXN")))
                 .andExpect(status().is(422))
                 .andExpect(jsonPath("$.errores[?(@.campo=='X-Escenario-Forzado')]").isNotEmpty());
-        assertEquals(antes, total());
+        assertFalse(operacionRepository.existsByReferenciaSeguimiento(referencia));
     }
 
     @Test
     void escenarioForzadoS01_liquidado() throws Exception {
-        String id = idDe(altaForzada(cuerpo(ref(), "Luis Cano Mora", "802", "MXN"), "S01").andExpect(status().is(201)));
+        String id = AyudaPruebas.idDe(altaForzada(cuerpo(ref(), "Luis Cano Mora", "802", "MXN"), "S01").andExpect(status().is(201)));
         mvc.perform(get(RUTA + "/" + id))
                 .andExpect(jsonPath("$.estado").value("LIQUIDADO"));
     }
 
     @Test
     void escenarioForzadoS06_enInvestigacion() throws Exception {
-        String id = idDe(altaForzada(cuerpo(ref(), "Luis Cano Mora", "802", "MXN"), "S06").andExpect(status().is(201)));
+        String id = AyudaPruebas.idDe(altaForzada(cuerpo(ref(), "Luis Cano Mora", "802", "MXN"), "S06").andExpect(status().is(201)));
         mvc.perform(get(RUTA + "/" + id))
                 .andExpect(jsonPath("$.estado").value("EN_INVESTIGACION"))
                 .andExpect(jsonPath("$.transiciones[2].motivo").value("PRX-024"));
@@ -119,32 +119,18 @@ class IdempotenciaYEscenariosTests {
     }
 
     private ResultActions alta(String body, String clave) throws Exception {
-        return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).header("Clave-Idempotencia", clave).content(body));
+        return mvc.perform(post(RUTA).contentType(APPLICATION_JSON).header("Clave-Idempotencia", clave).content(body));
     }
 
     private ResultActions altaForzada(String body, String escenario) throws Exception {
-        return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).header("X-Escenario-Forzado", escenario).content(body));
+        return mvc.perform(post(RUTA).contentType(APPLICATION_JSON).header("X-Escenario-Forzado", escenario).content(body));
     }
 
     private String crear(String body, String clave) throws Exception {
         if (clave == null) {
-            return idDe(mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().is(201)));
+            return AyudaPruebas.idDe(mvc.perform(post(RUTA).contentType(APPLICATION_JSON).content(body)).andExpect(status().is(201)));
         }
-        return idDe(alta(body, clave).andExpect(status().is(201)));
-    }
-
-    private String idDe(ResultActions r) throws Exception {
-        String respuesta = r.andReturn().getResponse().getContentAsString();
-        Matcher m = ID.matcher(respuesta);
-        assertTrue(m.find());
-        return m.group(1);
-    }
-
-    private int total() throws Exception {
-        String respuesta = mvc.perform(get(RUTA)).andExpect(status().is(200)).andReturn().getResponse().getContentAsString();
-        Matcher m = TOTAL.matcher(respuesta);
-        assertTrue(m.find());
-        return Integer.parseInt(m.group(1));
+        return AyudaPruebas.idDe(alta(body, clave).andExpect(status().is(201)));
     }
 
     private static String ref() {
