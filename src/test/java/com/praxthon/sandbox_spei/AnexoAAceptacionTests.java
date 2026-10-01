@@ -1,0 +1,795 @@
+package com.praxthon.sandbox_spei;
+
+import com.praxthon.sandbox_spei.entity.ClaveIdempotencia;
+import com.praxthon.sandbox_spei.entity.Operacion;
+import com.praxthon.sandbox_spei.entity.Transicion;
+import com.praxthon.sandbox_spei.repository.ClaveIdempotenciaRepository;
+import com.praxthon.sandbox_spei.repository.OperacionRepository;
+import com.praxthon.sandbox_spei.repository.TransicionRepository;
+import com.praxthon.sandbox_spei.service.MotorDePagosService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+class AnexoAAceptacionTests {
+
+    private static final String RUTA = "/api/v1/operaciones";
+    private static final Pattern REF = Pattern.compile("\"referenciaSeguimiento\":\"([^\"]*)\"");
+    private static final Pattern FECHA = Pattern.compile("\"fechaRegistro\":\"([^\"]+)\"");
+    private static final String EMISOR = clabe("801", "0001");
+    private static final String RECEPTOR_OK = clabe("802", "0011");
+
+    @Autowired
+    private WebApplicationContext contexto;
+
+    @Autowired
+    private OperacionRepository operacionRepository;
+
+    @Autowired
+    private TransicionRepository transicionRepository;
+
+    @Autowired
+    private ClaveIdempotenciaRepository idempotenciaRepository;
+
+    @Autowired
+    private MotorDePagosService motor;
+
+    private MockMvc mvc;
+
+    @BeforeEach
+    void preparar() {
+        mvc = MockMvcBuilders.webAppContextSetup(contexto).build();
+    }
+
+    @Test
+    void a01_t2tValida_seRegistraYSeLiquida() throws Exception {
+        String id = crear(t2t(ref(), RECEPTOR_OK));
+        verificar(id, "LIQUIDADO", 3, null);
+    }
+
+    @Test
+    void a01b_elCuerpoDelPost_traeEstadoRecibido() throws Exception {
+        alta(t2t(ref(), RECEPTOR_OK))
+                .andExpect(status().is(201))
+                .andExpect(jsonPath("$.estado").value("RECIBIDO"))
+                .andExpect(jsonPath("$.transiciones.length()").value(1));
+    }
+
+    @Test
+    void a02_vntValida_seRegistraYSeLiquida() throws Exception {
+        String id = crear(vnt(ref(), clabe("803", "0012")));
+        verificar(id, "LIQUIDADO", 3, null);
+    }
+
+    @Test
+    void a03_t2tSinCuentaEmisor_prx011() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"nombre\":\"Ana Ruiz Delgado\"}";
+        String body = cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-011@emisor.cuenta");
+    }
+
+    @Test
+    void a04_vntConCuentaEmisor_prx012() throws Exception {
+        String body = cuerpo("VNT", ref(), emisorVnt(true, true), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-012@emisor.cuenta");
+    }
+
+    @Test
+    void a05_vntSinSucursal_prx011() throws Exception {
+        String body = cuerpo("VNT", ref(), emisorVnt(false, false), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-011@emisor.sucursal");
+    }
+
+    @Test
+    void a06_cuentaReceptoraDeDiecisieteDigitos_prx001() throws Exception {
+        String c17 = RECEPTOR_OK.substring(0, 17);
+        String body = cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", c17), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-001@receptor.cuenta");
+    }
+
+    @Test
+    void a07_digitoVerificadorAlterado_prx002() throws Exception {
+        String alterada = RECEPTOR_OK.substring(0, 17) + ((RECEPTOR_OK.charAt(17) - '0' + 1) % 10);
+        String body = cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", alterada), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-002@receptor.cuenta");
+    }
+
+    @Test
+    void a08_institucionInexistente_prx003() throws Exception {
+        String body = cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("899", RECEPTOR_OK), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-003@receptor.institucion");
+    }
+
+    @Test
+    void a09_cuentaNoCoincideConInstitucion_prx030() throws Exception {
+        String body = cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", clabe("803", "0011")), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-030@receptor.cuenta");
+    }
+
+    @Test
+    void a10_importeCero_prx004() throws Exception {
+        soloErrores(altaInvalida(conImporte("0", "MXN")), "PRX-004@importe.valor");
+    }
+
+    @Test
+    void a11_importeNegativo_prx004() throws Exception {
+        soloErrores(altaInvalida(conImporte("-5.00", "MXN")), "PRX-004@importe.valor");
+    }
+
+    @Test
+    void a12_importeConTresDecimales_prx005() throws Exception {
+        soloErrores(altaInvalida(conImporte("1.005", "MXN")), "PRX-005@importe.valor");
+    }
+
+    @Test
+    void a13_importeMayorAlMaximo_prx005() throws Exception {
+        soloErrores(altaInvalida(conImporte("1000000.01", "MXN")), "PRX-005@importe.valor");
+    }
+
+    @Test
+    void a14_divisaUsd_prx006() throws Exception {
+        soloErrores(altaInvalida(conImporte("100.00", "USD")), "PRX-006@importe.divisa");
+    }
+
+    @Test
+    void a15_conceptoVacioYFolioCero_dosErroresEnUnaRespuesta() throws Exception {
+        String body = cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "", "0");
+        soloErrores(altaInvalida(body), "PRX-007@concepto", "PRX-008@folioNumerico");
+    }
+
+    @Test
+    void a16_referenciaRepetida_prx010() throws Exception {
+        String ref = ref();
+        crear(t2t(ref, RECEPTOR_OK));
+        soloErrores(alta(t2t(ref, RECEPTOR_OK)).andExpect(status().is(422)), "PRX-010@referenciaSeguimiento");
+        assertEquals(1, cuantasConReferencia(ref));
+    }
+
+    @Test
+    void a17_emisorYReceptorIguales_prx013() throws Exception {
+        String cuenta = clabe("801", "0011");
+        String body = cuerpo("T2T", ref(), emisorT2T(cuenta), receptor("801", cuenta), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-013@emisor.cuenta");
+    }
+
+    @Test
+    void institucionEmisora804_noPermitida_prx003() throws Exception {
+        String emisor = "{\"institucion\":\"804\",\"cuenta\":\"" + clabe("804", "0001") + "\",\"nombre\":\"Ana Ruiz Delgado\"}";
+        String body = cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago de prueba", "123");
+        soloErrores(altaInvalida(body), "PRX-003@emisor.institucion");
+    }
+
+    @Test
+    void a18_cuenta9002_devueltoPrx020() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9002")));
+        verificar(id, "DEVUELTO", 3, "PRX-020");
+    }
+
+    @Test
+    void a19_cuenta9003_devueltoPrx021() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9003")));
+        verificar(id, "DEVUELTO", 3, "PRX-021");
+    }
+
+    @Test
+    void cuenta9004_devueltoPrx022() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9004")));
+        verificar(id, "DEVUELTO", 3, "PRX-022");
+    }
+
+    @Test
+    void a20_institucion805_devueltoPrx022() throws Exception {
+        String id = crear(t2t(ref(), clabe("805", "0011")));
+        verificar(id, "DEVUELTO", 3, "PRX-022");
+    }
+
+    @Test
+    void institucion805_tienePrioridadSobre9005() throws Exception {
+        String id = crear(t2t(ref(), clabe("805", "9005")));
+        verificar(id, "DEVUELTO", 3, "PRX-022");
+    }
+
+    @Test
+    void a26_cuenta9005_permaneceEnProceso() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9005")));
+        verificar(id, "EN_PROCESO", 2, "PRX-023");
+    }
+
+    @Test
+    void cuenta9006_enInvestigacionPrx024() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9006")));
+        verificar(id, "EN_INVESTIGACION", 3, "PRX-024");
+    }
+
+    @Test
+    void escenarioForzadoS02_devueltoPrx020() throws Exception {
+        String id = AyudaPruebas.idDe(altaForzada(t2t(ref(), RECEPTOR_OK), "S02").andExpect(status().is(201)));
+        verificar(id, "DEVUELTO", 3, "PRX-020");
+    }
+
+    @Test
+    void a21_liquidadoADevuelto_prx014() throws Exception {
+        String id = crear(t2t(ref(), RECEPTOR_OK));
+        cambiarEstado(id, "DEVUELTO")
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores.length()").value(1))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+        verificar(id, "LIQUIDADO", 3, null);
+    }
+
+    @Test
+    void devueltoEsTerminal_prx014() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9002")));
+        cambiarEstado(id, "LIQUIDADO")
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+        verificar(id, "DEVUELTO", 3, "PRX-020");
+    }
+
+    @Test
+    void estadoInexistente_prx014() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9005")));
+        cambiarEstado(id, "INVENTADO")
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+        verificar(id, "EN_PROCESO", 2, "PRX-023");
+    }
+
+    @Test
+    void enProcesoALiquidado_transicionPermitida() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9005")));
+        cambiarEstado(id, "LIQUIDADO").andExpect(status().is(200));
+        verificar(id, "LIQUIDADO", 3, null);
+    }
+
+    @Test
+    void maquinaDeEstados_soloLasSieteTransicionesDeLaTablaSonPermitidas() {
+        List<String> estados = List.of("RECIBIDO", "EN_PROCESO", "LIQUIDADO", "DEVUELTO", "RECHAZADO", "EN_INVESTIGACION");
+        Set<String> permitidas = Set.of(
+                "RECIBIDO>EN_PROCESO", "RECIBIDO>RECHAZADO",
+                "EN_PROCESO>LIQUIDADO", "EN_PROCESO>DEVUELTO", "EN_PROCESO>EN_INVESTIGACION",
+                "EN_INVESTIGACION>LIQUIDADO", "EN_INVESTIGACION>DEVUELTO");
+        for (String origen : estados) {
+            for (String destino : estados) {
+                assertEquals(permitidas.contains(origen + ">" + destino),
+                        MotorDePagosService.transicionPermitida(origen, destino),
+                        origen + " -> " + destino);
+            }
+        }
+    }
+
+    @Test
+    void cambiarEstadoDeOperacionInexistente_404() throws Exception {
+        cambiarEstado("op_999999", "LIQUIDADO").andExpect(status().is(404));
+    }
+
+    @Test
+    void a22_consultaDeIdentificadorInexistente_404() throws Exception {
+        mvc.perform(get(RUTA + "/op_999999")).andExpect(status().is(404));
+    }
+
+    @Test
+    void a23_listadoSinParametros_vieneEnPaginas() throws Exception {
+        for (int i = 0; i < 25; i++) {
+            crear(t2t(ref(), RECEPTOR_OK));
+        }
+        assertTrue(AyudaPruebas.total(mvc, RUTA) >= 120);
+        mvc.perform(get(RUTA))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.pagina").value(0))
+                .andExpect(jsonPath("$.tamano").value(20))
+                .andExpect(jsonPath("$.contenido.length()").value(20));
+        mvc.perform(get(RUTA + "?pagina=1&tamano=5"))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.pagina").value(1))
+                .andExpect(jsonPath("$.contenido.length()").value(5));
+    }
+
+    @Test
+    void a23b_laSemillaTiene120Operaciones() {
+        long sembradas = operacionRepository.findAll().stream()
+                .filter(o -> o.getReferenciaSeguimiento().startsWith("SEMILLA"))
+                .count();
+        assertEquals(120, sembradas);
+    }
+
+    @Test
+    void a23c_laSemillaIncluyeLosTresEstadosTerminales() {
+        Set<String> estados = operacionRepository.findAll().stream()
+                .filter(o -> o.getReferenciaSeguimiento().startsWith("SEMILLA"))
+                .map(Operacion::getEstadoActual)
+                .collect(Collectors.toSet());
+        assertTrue(estados.contains("LIQUIDADO"));
+        assertTrue(estados.contains("DEVUELTO"));
+        assertTrue(estados.contains("RECHAZADO"));
+    }
+
+    @Test
+    void a23d_listadoVieneDelMasRecienteAlMasAntiguo() throws Exception {
+        String respuesta = mvc.perform(get(RUTA + "?tamano=100"))
+                .andExpect(status().is(200))
+                .andReturn().getResponse().getContentAsString();
+        Matcher m = FECHA.matcher(respuesta);
+        List<OffsetDateTime> fechas = new ArrayList<>();
+        while (m.find()) {
+            fechas.add(OffsetDateTime.parse(m.group(1)));
+        }
+        assertTrue(fechas.size() > 1);
+        for (int i = 0; i < fechas.size() - 1; i++) {
+            assertFalse(fechas.get(i).isBefore(fechas.get(i + 1)), "Orden incorrecto en la posición " + i);
+        }
+    }
+
+    @Test
+    void a24_mismaClaveYMismoCuerpo_devuelveLaOperacionOriginal() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        String ref = ref();
+        String body = t2t(ref, RECEPTOR_OK);
+        String id = crear(body, clave);
+        alta(body, clave)
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.id").value(id));
+        assertEquals(1, cuantasConReferencia(ref));
+    }
+
+    @Test
+    void a25_mismaClaveConCuerpoDistinto_prx015() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        String ref = ref();
+        crear(t2t(ref, RECEPTOR_OK), clave);
+        String distinto = cuerpo("T2T", ref, emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Otro concepto", "123");
+        alta(distinto, clave)
+                .andExpect(status().is(409))
+                .andExpect(jsonPath("$.errores.length()").value(1))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-015"));
+        assertEquals(1, cuantasConReferencia(ref));
+    }
+
+    @Test
+    void mismaClaveConOtraReferencia_prx015() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        crear(t2t(ref(), RECEPTOR_OK), clave);
+        String otra = ref();
+        alta(t2t(otra, RECEPTOR_OK), clave)
+                .andExpect(status().is(409))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-015"));
+        assertEquals(0, cuantasConReferencia(otra));
+    }
+
+    @Test
+    void claveExpirada_seProcesaComoClaveNueva() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        String primerId = crear(t2t(ref(), RECEPTOR_OK), clave);
+
+        ClaveIdempotencia vieja = idempotenciaRepository.findById(clave).orElseThrow();
+        vieja.setFechaExpiracion(LocalDateTime.now().minusHours(1));
+        idempotenciaRepository.save(vieja);
+
+        String segundoId = crear(t2t(ref(), RECEPTOR_OK), clave);
+        assertNotEquals(primerId, segundoId);
+        mvc.perform(get(RUTA + "/" + segundoId)).andExpect(status().is(200));
+    }
+
+    @Test
+    void catalogoDeInstituciones_devuelveLasCinco() throws Exception {
+        mvc.perform(get("/api/v1/catalogos/instituciones"))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.length()").value(5))
+                .andExpect(jsonPath("$[0].codigo").value("801"));
+    }
+
+    @Test
+    void d2_tipoInvalido_prx031() throws Exception {
+        String body = cuerpo("XXX", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        soloErrores(altaInvalida(body), "PRX-031@tipoOperacion");
+    }
+
+    @Test
+    void d3_referenciaConSimbolos_prx009() throws Exception {
+        String body = cuerpo("T2T", "REF-@#!", emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        soloErrores(altaInvalida(body), "PRX-009@referenciaSeguimiento");
+    }
+
+    @Test
+    void d4_t2tConSucursal_prx012() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"" + EMISOR + "\",\"sucursal\":\"0417\",\"nombre\":\"Ana Ruiz Delgado\"}";
+        String body = cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        soloErrores(altaInvalida(body), "PRX-012@emisor.sucursal");
+    }
+
+    @Test
+    void d5_nombreEmisorVacio_prx011() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"" + EMISOR + "\",\"nombre\":\"\"}";
+        String body = cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123");
+        soloErrores(altaInvalida(body), "PRX-011@emisor.nombre");
+    }
+
+    @Test
+    void d6_sucursalLarga_422() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"sucursal\":\"" + "1".repeat(21)
+                + "\",\"nombre\":\"Marta Solis Vega\",\"documentoIdentidad\":{\"tipo\":\"INE\",\"numero\":\"IDMEX1734558\"}}";
+        soloErrores(altaInvalida(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123")),
+                "@emisor.sucursal");
+    }
+
+    @Test
+    void d7_importeConCerosSobrantes_seAcepta() throws Exception {
+        crear(conImporte("1500.500", "MXN"));
+    }
+
+    @Test
+    void d8_rechazadoEsTerminal_prx014() throws Exception {
+        String id = crearRechazada();
+        mvc.perform(get(RUTA + "/" + id)).andExpect(jsonPath("$.estado").value("RECHAZADO"));
+        cambiarEstado(id, "LIQUIDADO")
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+        mvc.perform(get(RUTA + "/" + id)).andExpect(jsonPath("$.estado").value("RECHAZADO"));
+    }
+
+    @Test
+    void d9_patchSinNuevoEstado_prx014() throws Exception {
+        String id = crear(t2t(ref(), clabe("802", "9005")));
+        mvc.perform(patch(RUTA + "/" + id + "/estado").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores[0].codigo").value("PRX-014"));
+        verificar(id, "EN_PROCESO", 2, "PRX-023");
+    }
+
+    @Test
+    void d10_jsonRoto_422() throws Exception {
+        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content("{roto"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.errores.length()").value(1));
+    }
+
+    @Test
+    void d10_folioConTipoIncorrecto_prx008() throws Exception {
+        soloErrores(altaInvalida(cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "\"abc\"")), "PRX-008@folioNumerico");
+    }
+
+    @Test
+    void d10_importeConTipoIncorrecto_prx004() throws Exception {
+        soloErrores(altaInvalida(cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK),
+                "\"abc\"", "MXN", "Pago", "123")), "PRX-004@importe.valor");
+    }
+
+    @Test
+    void d10_cuerpoNull_422() throws Exception {
+        mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content("null"))
+                .andExpect(status().is(422));
+    }
+
+    @Test
+    void d11_paginacionNegativa_seCorrige() throws Exception {
+        mvc.perform(get(RUTA + "?pagina=-1&tamano=0"))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.pagina").value(0))
+                .andExpect(jsonPath("$.tamano").value(1));
+    }
+
+    @Test
+    void d12_tamanoMaximo100() throws Exception {
+        mvc.perform(get(RUTA + "?tamano=100000"))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.tamano").value(100));
+    }
+
+    @Test
+    void d13_claveIdempotenciaLarga_422() throws Exception {
+        altaInvalida(t2t(ref(), RECEPTOR_OK), "a".repeat(65));
+    }
+
+    @Test
+    void d14_mismoImporteDistintaEscala_devuelveOriginal() throws Exception {
+        String clave = UUID.randomUUID().toString();
+        String ref = ref();
+        String id = crear(cuerpo("T2T", ref, emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.5", "MXN", "Pago", "123"), clave);
+        alta(cuerpo("T2T", ref, emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123"), clave)
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.id").value(id));
+    }
+
+    @Test
+    void vntConCuentaVacia_prx012() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"\",\"sucursal\":\"0417\",\"nombre\":\"Marta Solis Vega\","
+                + "\"documentoIdentidad\":{\"tipo\":\"INE\",\"numero\":\"IDMEX1734558\"}}";
+        soloErrores(altaInvalida(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "123")), "PRX-012@emisor.cuenta");
+    }
+
+    @Test
+    void e1_emisorAusente_prx011() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("emisor")), "PRX-011@emisor");
+    }
+
+    @Test
+    void e2_receptorAusente_prx011() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("receptor")), "PRX-011@receptor");
+    }
+
+    @Test
+    void e3_importeAusente_prx004() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("importe")), "PRX-004@importe.valor");
+    }
+
+    @Test
+    void e4_conceptoAusente_prx007() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("concepto")), "PRX-007@concepto");
+    }
+
+    @Test
+    void e5_folioAusente_prx008() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("folioNumerico")), "PRX-008@folioNumerico");
+    }
+
+    @Test
+    void e6_referenciaAusente_prx009() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("referenciaSeguimiento")), "PRX-009@referenciaSeguimiento");
+    }
+
+    @Test
+    void e7_tipoOperacionAusente_prx031() throws Exception {
+        soloErrores(altaInvalida(cuerpoSin("tipoOperacion")), "PRX-031@tipoOperacion");
+    }
+
+    @Test
+    void e8_documentoSoloConTipo_prx011() throws Exception {
+        String emisor = emisorVntConDocumento("{\"tipo\":\"INE\"}");
+        soloErrores(altaInvalida(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "123")), "PRX-011@emisor.documentoIdentidad");
+    }
+
+    @Test
+    void e9_documentoSoloConNumero_prx011() throws Exception {
+        String emisor = emisorVntConDocumento("{\"numero\":\"IDMEX1734558\"}");
+        soloErrores(altaInvalida(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "123")), "PRX-011@emisor.documentoIdentidad");
+    }
+
+    @Test
+    void f1_campoDesconocidoEnEmisor_422() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"" + EMISOR + "\",\"nombre\":\"Ana Ruiz Delgado\",\"sucrusal\":\"0417\"}";
+        soloErrores(altaInvalida(cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "123")), "@emisor.sucrusal");
+    }
+
+    @Test
+    void f2_identificacionFiscalEnVnt_prx012() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"sucursal\":\"0417\",\"nombre\":\"Marta Solis Vega\","
+                + "\"identificacionFiscal\":\"RUDA900112HN4\","
+                + "\"documentoIdentidad\":{\"tipo\":\"INE\",\"numero\":\"IDMEX1734558\"}}";
+        soloErrores(altaInvalida(cuerpo("VNT", ref(), emisor, receptor("802", RECEPTOR_OK),
+                "1500.50", "MXN", "Pago", "123")), "PRX-012@emisor.identificacionFiscal");
+    }
+
+    @Test
+    void f3_identificacionFiscalEnT2t_seAcepta() throws Exception {
+        String emisor = "{\"institucion\":\"801\",\"cuenta\":\"" + EMISOR + "\",\"nombre\":\"Ana Ruiz Delgado\","
+                + "\"identificacionFiscal\":\"RUDA900112HN4\"}";
+        crear(cuerpo("T2T", ref(), emisor, receptor("802", RECEPTOR_OK), "1500.50", "MXN", "Pago", "123"));
+    }
+
+    @Test
+    void f4_importeGigante_422SinCongelarse() {
+        String body = cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK),
+                "1e999999999", "MXN", "Pago", "123");
+        assertTimeoutPreemptively(Duration.ofSeconds(10), () -> {
+            alta(body)
+                    .andExpect(status().is(422))
+                    .andExpect(jsonPath("$.errores[?(@.campo=='importe.valor')]").isNotEmpty());
+            noGuardada(body);
+        });
+    }
+
+    private ResultActions alta(String body) throws Exception {
+        return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private ResultActions alta(String body, String clave) throws Exception {
+        return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).header("Clave-Idempotencia", clave).content(body));
+    }
+
+    private ResultActions altaForzada(String body, String escenario) throws Exception {
+        return mvc.perform(post(RUTA).contentType(MediaType.APPLICATION_JSON).header("X-Escenario-Forzado", escenario).content(body));
+    }
+
+    private ResultActions altaInvalida(String body) throws Exception {
+        ResultActions r = alta(body).andExpect(status().is(422));
+        noGuardada(body);
+        return r;
+    }
+
+    private ResultActions altaInvalida(String body, String clave) throws Exception {
+        ResultActions r = alta(body, clave).andExpect(status().is(422));
+        noGuardada(body);
+        return r;
+    }
+
+    private void noGuardada(String body) {
+        Matcher m = REF.matcher(body);
+        if (m.find()) {
+            assertFalse(operacionRepository.existsByReferenciaSeguimiento(m.group(1)),
+                    "La operación rechazada quedó guardada: " + m.group(1));
+        }
+    }
+
+    private long cuantasConReferencia(String ref) {
+        return operacionRepository.findAll().stream()
+                .filter(o -> ref.equals(o.getReferenciaSeguimiento()))
+                .count();
+    }
+
+    private ResultActions cambiarEstado(String id, String nuevoEstado) throws Exception {
+        return mvc.perform(patch(RUTA + "/" + id + "/estado").contentType(MediaType.APPLICATION_JSON).content("{\"nuevoEstado\":\"" + nuevoEstado + "\"}"));
+    }
+
+    private String crear(String body) throws Exception {
+        return AyudaPruebas.idDe(alta(body).andExpect(status().is(201)));
+    }
+
+    private String crear(String body, String clave) throws Exception {
+        return AyudaPruebas.idDe(alta(body, clave).andExpect(status().is(201)));
+    }
+
+    private String idExterno(Long id) {
+        return "op_" + id;
+    }
+
+    private String crearRechazada() {
+        Operacion op = new Operacion();
+        op.setTipoOperacion("T2T");
+        op.setEstadoActual("RECIBIDO");
+        op.setEmisorNombre("Ana Ruiz Delgado");
+        op.setEmisorInstitucion("801");
+        op.setEmisorCuenta(EMISOR);
+        op.setReceptorNombre("Luis Cano Mora");
+        op.setReceptorInstitucion("802");
+        op.setReceptorCuenta(RECEPTOR_OK);
+        op.setImporteValor(new BigDecimal("10.00"));
+        op.setImporteDivisa("MXN");
+        op.setConcepto("Rechazo de prueba");
+        op.setFolioNumerico(9L);
+        op.setReferenciaSeguimiento(ref());
+        op = operacionRepository.save(op);
+
+        Transicion inicial = new Transicion();
+        inicial.setOperacionId(op.getId());
+        inicial.setEstadoOrigen(null);
+        inicial.setEstadoDestino("RECIBIDO");
+        transicionRepository.save(inicial);
+
+        motor.aplicarTransicion(op, "RECHAZADO", null);
+        return idExterno(op.getId());
+    }
+
+    private void verificar(String id, String estado, int transiciones, String motivo) throws Exception {
+        ResultActions r = mvc.perform(get(RUTA + "/" + id))
+                .andExpect(status().is(200))
+                .andExpect(jsonPath("$.estado").value(estado))
+                .andExpect(jsonPath("$.transiciones.length()").value(transiciones))
+                .andExpect(jsonPath("$.transiciones[0].estado").value("RECIBIDO"));
+        if (motivo != null) {
+            r.andExpect(jsonPath("$.transiciones[" + (transiciones - 1) + "].motivo").value(motivo));
+        }
+    }
+
+    private void soloErrores(ResultActions r, String... pares) throws Exception {
+        r.andExpect(jsonPath("$.errores.length()").value(pares.length));
+        for (String par : pares) {
+            String[] partes = par.split("@", 2);
+            String codigo = partes[0];
+            String campo = partes[1];
+            String filtro = codigo.isEmpty()
+                    ? "$.errores[?(@.campo=='" + campo + "')]"
+                    : "$.errores[?(@.codigo=='" + codigo + "' && @.campo=='" + campo + "')]";
+            r.andExpect(jsonPath(filtro).isNotEmpty());
+        }
+    }
+
+    private static String ref() {
+        return "T" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+    }
+
+    private static int digito(String primeros17) {
+        int[] pesos = {3, 7, 1};
+        int suma = 0;
+        for (int i = 0; i < 17; i++) {
+            suma += ((primeros17.charAt(i) - '0') * pesos[i % 3]) % 10;
+        }
+        return (10 - (suma % 10)) % 10;
+    }
+
+    private static String clabe(String institucion, String ultimos4) {
+        String base = institucion + "180" + "0000000" + ultimos4;
+        return base + digito(base);
+    }
+
+    private static String emisorT2T(String cuenta) {
+        return "{\"institucion\":\"801\",\"cuenta\":\"" + cuenta + "\",\"nombre\":\"Ana Ruiz Delgado\"}";
+    }
+
+    private static String emisorVnt(boolean conSucursal, boolean conCuenta) {
+        return "{\"institucion\":\"801\","
+                + (conCuenta ? "\"cuenta\":\"" + EMISOR + "\"," : "")
+                + (conSucursal ? "\"sucursal\":\"0417\"," : "")
+                + "\"nombre\":\"Marta Solis Vega\",\"documentoIdentidad\":{\"tipo\":\"INE\",\"numero\":\"IDMEX1734558\"}}";
+    }
+
+    private static String emisorVntConDocumento(String documento) {
+        return "{\"institucion\":\"801\",\"sucursal\":\"0417\",\"nombre\":\"Marta Solis Vega\",\"documentoIdentidad\":" + documento + "}";
+    }
+
+    private static String receptor(String institucion, String cuenta) {
+        return "{\"institucion\":\"" + institucion + "\",\"cuenta\":\"" + cuenta + "\",\"nombre\":\"Luis Cano Mora\"}";
+    }
+
+    private static String cuerpo(String tipo, String ref, String emisor, String receptor,
+                                 String valor, String divisa, String concepto, String folio) {
+        return """
+                {"tipoOperacion":"%s","referenciaSeguimiento":"%s","importe":{"valor":%s,"divisa":"%s"},"emisor":%s,"receptor":%s,"concepto":"%s","folioNumerico":%s}
+                """.formatted(tipo, ref, valor, divisa, emisor, receptor, concepto, folio);
+    }
+
+    private static String cuerpoSin(String omitido) {
+        Map<String, String> partes = new LinkedHashMap<>();
+        partes.put("tipoOperacion", "\"T2T\"");
+        partes.put("referenciaSeguimiento", "\"" + ref() + "\"");
+        partes.put("importe", "{\"valor\":1500.50,\"divisa\":\"MXN\"}");
+        partes.put("emisor", emisorT2T(EMISOR));
+        partes.put("receptor", receptor("802", RECEPTOR_OK));
+        partes.put("concepto", "\"Pago de prueba\"");
+        partes.put("folioNumerico", "123");
+        partes.remove(omitido);
+        return "{" + partes.entrySet().stream()
+                .map(e -> "\"" + e.getKey() + "\":" + e.getValue())
+                .collect(Collectors.joining(",")) + "}";
+    }
+
+    private static String t2t(String ref, String cuentaReceptor) {
+        return cuerpo("T2T", ref, emisorT2T(EMISOR), receptor(cuentaReceptor.substring(0, 3), cuentaReceptor),
+                "1500.50", "MXN", "Pago de prueba", "123");
+    }
+
+    private static String vnt(String ref, String cuentaReceptor) {
+        return cuerpo("VNT", ref, emisorVnt(true, false), receptor(cuentaReceptor.substring(0, 3), cuentaReceptor),
+                "1500.50", "MXN", "Pago de prueba", "123");
+    }
+
+    private static String conImporte(String valor, String divisa) {
+        return cuerpo("T2T", ref(), emisorT2T(EMISOR), receptor("802", RECEPTOR_OK), valor, divisa, "Pago de prueba", "123");
+    }
+}

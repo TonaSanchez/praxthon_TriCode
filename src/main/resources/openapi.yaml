@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: PRAXTHON AMATEUR 2026 · Sandbox SPEI (contrato común)
+  version: 1.0.0-borrador
+  description: |
+    Contrato único que implementan los equipos (documento v3.0, §4 y §5).
+    Formato propio con fines formativos: NO reproduce la especificación de Banco de México.
+    Datos sintéticos e instituciones ficticias (§13).
+
+    Criterio que atraviesa el contrato: una instrucción bien formada SIEMPRE se acepta con 201;
+    su desenlace de negocio (liquidada, devuelta) se refleja en `estado`, nunca en el código HTTP.
+    Los 4xx se reservan para instrucciones mal formadas.
+servers:
+  - url: http://127.0.0.1:8080/api/v1
+tags:
+  - name: Operaciones
+  - name: Catálogos
+paths:
+  /operaciones:
+    post:
+      tags: [Operaciones]
+      summary: Registrar una instrucción de pago simulada
+      parameters:
+        - $ref: '#/components/parameters/ClaveIdempotencia'
+        - $ref: '#/components/parameters/EscenarioForzado'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SolicitudOperacion'
+            examples:
+              T2T:
+                value:
+                  tipoOperacion: T2T
+                  referenciaSeguimiento: PRX20260921000001
+                  importe: { valor: 1500.50, divisa: MXN }
+                  emisor: { institucion: '801', cuenta: '801180000118359717', nombre: Ana Ruiz Delgado, identificacionFiscal: RUDA900112HN4 }
+                  receptor: { institucion: '802', cuenta: '802180000200030011', nombre: Luis Cano Mora }
+                  concepto: Pago de servicios
+                  folioNumerico: 4821
+              VNT:
+                value:
+                  tipoOperacion: VNT
+                  referenciaSeguimiento: PRX20260921000002
+                  importe: { valor: 3200.00, divisa: MXN }
+                  emisor: { institucion: '801', sucursal: '0417', nombre: Marta Solis Vega, documentoIdentidad: { tipo: INE, numero: IDMEX1734558 } }
+                  receptor: { institucion: '803', cuenta: '803180000900050028', nombre: Comercial Vega SA de CV }
+                  concepto: Deposito en ventanilla
+                  folioNumerico: 1190
+      responses:
+        '201':
+          description: Instrucción aceptada y persistida en estado RECIBIDO (incluye S02–S06)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operacion' }
+        '200':
+          description: Reintento con la misma Clave-Idempotencia y cuerpo idéntico; se devuelve el recurso original
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operacion' }
+        '409':
+          description: Clave-Idempotencia reutilizada con cuerpo distinto (PRX-015)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaError' }
+        '422':
+          description: Instrucción mal formada (V01–V19). No se registra. Todos los errores en una sola respuesta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaError' }
+              example:
+                referenciaSeguimiento: PRX20260921000003
+                errores:
+                  - { codigo: PRX-002, campo: receptor.cuenta, mensaje: Digito verificador de la CLABE incorrecto }
+                  - { codigo: PRX-004, campo: importe.valor, mensaje: El importe debe ser mayor que cero }
+    get:
+      tags: [Operaciones]
+      summary: Listar el historial paginado, por fechaRegistro descendente
+      parameters:
+        - { name: pagina, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: tamano, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Página de resultados (nunca la tabla completa)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginaOperaciones' }
+  /operaciones/{id}:
+    get:
+      tags: [Operaciones]
+      summary: Consultar una operación con su historial de transiciones
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, example: op_01J8ZQ4M7X2NRVA6K3TDY9C5EB } }
+      responses:
+        '200':
+          description: Operación encontrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Operacion' }
+        '404':
+          description: Identificador inexistente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaError' }
+  /catalogos/instituciones:
+    get:
+      tags: [Catálogos]
+      summary: Catálogo ficticio de instituciones (§5.3)
+      responses:
+        '200':
+          description: Catálogo
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    codigo: { type: string, enum: ['801', '802', '803', '804', '805'] }
+                    nombre: { type: string }
+components:
+  parameters:
+    ClaveIdempotencia:
+      name: Clave-Idempotencia
+      in: header
+      required: false
+      description: Identificador único generado por el cliente; retención sugerida de 24 h (§5.8)
+      schema: { type: string, format: uuid }
+    EscenarioForzado:
+      name: X-Escenario-Forzado
+      in: header
+      required: false
+      description: Extra opcional. Sobrescribe la resolución por cuenta reservada. No sustituye al mecanismo por cuenta.
+      schema: { type: string, enum: [S01, S02, S03, S04, S05, S06] }
+  schemas:
+    Clabe:
+      type: string
+      pattern: '^[0-9]{18}$'
+      description: |
+        3 institución + 3 plaza + 11 cuenta + 1 control. Control con pesos 3,7,1 (§5.5).
+        Los dígitos 14–17 de receptor.cuenta seleccionan el escenario: 9002 S02, 9003 S03, 9004 S04, 9005 S05, 9006 S06.
+    Importe:
+      type: object
+      required: [valor, divisa]
+      properties:
+        valor: { type: number, exclusiveMinimum: true, minimum: 0, maximum: 1000000.00, multipleOf: 0.01 }
+        divisa: { type: string, enum: [MXN] }
+    Receptor:
+      type: object
+      required: [institucion, cuenta, nombre]
+      properties:
+        institucion: { type: string, enum: ['801', '802', '803', '804', '805'] }
+        cuenta: { $ref: '#/components/schemas/Clabe' }
+        nombre: { type: string, minLength: 1, maxLength: 40 }
+    EmisorT2T:
+      type: object
+      additionalProperties: false
+      required: [institucion, cuenta, nombre]
+      properties:
+        institucion: { type: string, enum: ['801', '802', '803', '805'] }
+        cuenta: { $ref: '#/components/schemas/Clabe' }
+        nombre: { type: string, minLength: 1, maxLength: 40 }
+        identificacionFiscal: { type: string }
+    EmisorVNT:
+      type: object
+      additionalProperties: false
+      required: [institucion, sucursal, nombre, documentoIdentidad]
+      properties:
+        institucion: { type: string, enum: ['801', '802', '803', '805'] }
+        sucursal: { type: string, example: '0417' }
+        nombre: { type: string, minLength: 1, maxLength: 40 }
+        documentoIdentidad:
+          type: object
+          required: [tipo, numero]
+          properties:
+            tipo: { type: string, example: INE }
+            numero: { type: string }
+    SolicitudBase:
+      type: object
+      required: [tipoOperacion, referenciaSeguimiento, importe, emisor, receptor, concepto, folioNumerico]
+      properties:
+        tipoOperacion: { type: string, enum: [T2T, VNT] }
+        referenciaSeguimiento: { type: string, pattern: '^[A-Za-z0-9]{1,30}$' }
+        importe: { $ref: '#/components/schemas/Importe' }
+        receptor: { $ref: '#/components/schemas/Receptor' }
+        concepto: { type: string, minLength: 1, maxLength: 40 }
+        folioNumerico: { type: integer, minimum: 1, maximum: 9999999 }
+    SolicitudT2T:
+      allOf:
+        - $ref: '#/components/schemas/SolicitudBase'
+        - type: object
+          properties:
+            emisor: { $ref: '#/components/schemas/EmisorT2T' }
+    SolicitudVNT:
+      allOf:
+        - $ref: '#/components/schemas/SolicitudBase'
+        - type: object
+          properties:
+            emisor: { $ref: '#/components/schemas/EmisorVNT' }
+    SolicitudOperacion:
+      description: Esquema discriminado por tipoOperacion. El JSON Schema no expresa todas las reglas; la fuente de verdad es el catálogo V01–V19.
+      oneOf:
+        - $ref: '#/components/schemas/SolicitudT2T'
+        - $ref: '#/components/schemas/SolicitudVNT'
+      discriminator:
+        propertyName: tipoOperacion
+        mapping:
+          T2T: '#/components/schemas/SolicitudT2T'
+          VNT: '#/components/schemas/SolicitudVNT'
+    Estado:
+      type: string
+      enum: [RECIBIDO, EN_PROCESO, LIQUIDADO, DEVUELTO, RECHAZADO, EN_INVESTIGACION]
+    Transicion:
+      type: object
+      properties:
+        estado: { $ref: '#/components/schemas/Estado' }
+        momento: { type: string, format: date-time }
+        motivo: { type: string, nullable: true, example: PRX-020 }
+    Operacion:
+      type: object
+      properties:
+        id: { type: string, example: op_01J8ZQ4M7X2NRVA6K3TDY9C5EB }
+        referenciaSeguimiento: { type: string }
+        estado: { $ref: '#/components/schemas/Estado' }
+        tipoOperacion: { type: string, enum: [T2T, VNT] }
+        importe: { $ref: '#/components/schemas/Importe' }
+        fechaRegistro: { type: string, format: date-time }
+        transiciones:
+          type: array
+          items: { $ref: '#/components/schemas/Transicion' }
+    PaginaOperaciones:
+      type: object
+      properties:
+        contenido:
+          type: array
+          items: { $ref: '#/components/schemas/Operacion' }
+        pagina: { type: integer }
+        tamano: { type: integer }
+        totalElementos: { type: integer }
+        totalPaginas: { type: integer }
+    Error:
+      type: object
+      properties:
+        codigo:
+          type: string
+          nullable: true
+          enum: [PRX-001, PRX-002, PRX-003, PRX-004, PRX-005, PRX-006, PRX-007, PRX-008, PRX-009, PRX-010,
+                 PRX-011, PRX-012, PRX-013, PRX-014, PRX-015, PRX-030, PRX-031, null]
+        campo: { type: string, nullable: true, example: receptor.cuenta }
+        mensaje: { type: string }
+    RespuestaError:
+      type: object
+      properties:
+        referenciaSeguimiento: { type: string, nullable: true }
+        errores:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Error' }
