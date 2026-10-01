@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.praxthon.sandbox_spei.ConcurrenciaTests" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-01T00:23:27.056Z" hostname="DESKTOP-62F9897" time="0.05">
+  <properties/>
+  <testcase name="altasSimultaneasConLaMismaClave_creanUnaOperacion()" classname="com.praxthon.sandbox_spei.ConcurrenciaTests" time="0.027"/>
+  <testcase name="cambiosDeEstadoSimultaneos_soloUnoGana()" classname="com.praxthon.sandbox_spei.ConcurrenciaTests" time="0.016"/>
+  <system-out><![CDATA[2026-09-30T18:23:27.058-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.praxthon.sandbox_spei.ConcurrenciaTests]: ConcurrenciaTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-09-30T18:23:27.058-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.praxthon.sandbox_spei.SandboxSpeiApplication for test class com.praxthon.sandbox_spei.ConcurrenciaTests
+2026-09-30T18:23:27.059-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.praxthon.sandbox_spei.ConcurrenciaTests]: ConcurrenciaTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-09-30T18:23:27.060-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.praxthon.sandbox_spei.SandboxSpeiApplication for test class com.praxthon.sandbox_spei.ConcurrenciaTests
+2026-09-30T18:23:27.062-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.062-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.064-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 2 ms
+2026-09-30T18:23:27.074-06:00  WARN 6572 --- [sandbox-spei] [pool-2-thread-2] org.hibernate.orm.jdbc.error             : HHH000247: ErrorCode: 23505, SQLState: 23505
+2026-09-30T18:23:27.074-06:00  WARN 6572 --- [sandbox-spei] [pool-2-thread-2] org.hibernate.orm.jdbc.error             : Violación de indice de Unicidad ó Clave primaria: "PUBLIC.CONSTRAINT_9 INDEX PUBLIC.CONSTRAINT_INDEX_9 ON PUBLIC.OPERACION(REFERENCIA_SEGUIMIENTO NULLS FIRST) VALUES ( /* 172 */ 'T7214a845b4af4031bf9d' )"
+Unique index or primary key violation: "PUBLIC.CONSTRAINT_9 INDEX PUBLIC.CONSTRAINT_INDEX_9 ON PUBLIC.OPERACION(REFERENCIA_SEGUIMIENTO NULLS FIRST) VALUES ( /* 172 */ 'T7214a845b4af4031bf9d' )"; SQL statement:
+insert into operacion (clave_idempotencia,concepto,emisor_cuenta,emisor_documento,emisor_institucion,emisor_nombre,emisor_sucursal,estado_actual,fecha_actualizacion,fecha_registro,folio_numerico,importe_divisa,importe_valor,motivo_actual,receptor_cuenta,receptor_institucion,receptor_nombre,referencia_seguimiento,tipo_operacion,id) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,default) [23505-240]
+2026-09-30T18:23:27.090-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.090-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.091-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

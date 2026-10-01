@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.praxthon.sandbox_spei.ValidadorDeReglasTest" tests="45" skipped="0" failures="0" errors="0" timestamp="2026-10-01T00:23:27.334Z" hostname="DESKTOP-62F9897" time="0.025">
+  <properties/>
+  <testcase name="v09_conceptoDe40CaracteresEsValido()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v04_emisorConInstitucionInexistente()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.002"/>
+  <testcase name="v13_tipoInvalido()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v01_receptorConLetras()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="emisorNulo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v15_t2tConSucursal()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v17_vntConCuentaEmisor()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v04_receptorConInstitucionInexistente()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v17_vntConCuentaEmisorVacia()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="vectorUno_digito9()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v05_receptorNoCoincideConInstitucion()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v03_emisorCon17Digitos()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v16_vntSinSucursal()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v16_vntSinDocumentoIdentidad()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v16_vntDocumentoSoloConTipo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v14_t2tSinCuentaEmisor()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="campoDesconocidoEnEmisor()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v18_nombreEmisorVacio()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v11_referenciaInvalida()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v05_emisorNoCoincideConInstitucion()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="t2tValida_sinErrores()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="vntValida_sinErrores()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v08_divisaDistintaDeMxn()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v18_nombreReceptorMuyLargo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v07_importeGigante()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v09_conceptoVacioOMuyLargo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v19_t2tConEmisorYReceptorIguales()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v15_t2tConDocumentoIdentidad()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v03_emisorConDigitoVerificadorAlterado()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v02_receptorConDigitoVerificadorAlterado()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="vectorDos_digito6()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v16_vntDocumentoSoloConNumero()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v01_receptorCon17Digitos()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v10_folioFueraDeRango()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v15_t2tConSucursalVacia()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="variosErrores_seAcumulanEnUnaSolaRespuesta()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v10_folioLimiteValido()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v07_limitesValidos()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="receptorNulo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.001"/>
+  <testcase name="v04_institucion804SoloPuedeSerReceptora()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="importeNulo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v11_referenciaDe30CaracteresEsValida()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v07_importeMayorAlMaximoOConTresDecimales()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="v06_importeCeroYNegativo()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <testcase name="vntConIdentificacionFiscal()" classname="com.praxthon.sandbox_spei.ValidadorDeReglasTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

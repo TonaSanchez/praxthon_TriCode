@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-01T00:23:27.106Z" hostname="DESKTOP-62F9897" time="0.227">
+  <properties/>
+  <testcase name="escenarioForzadoS01_liquidado()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.011"/>
+  <testcase name="escenarioForzadoS06_enInvestigacion()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.011"/>
+  <testcase name="historialSiempreEnOrden_recibidoEnProcesoLiquidado()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.14"/>
+  <testcase name="mismaClaveConOtroNombreDeReceptor_prx015()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.011"/>
+  <testcase name="mismaClaveConOtraInstitucionDeReceptor_prx015()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.01"/>
+  <testcase name="mismaClaveYMismoCuerpo_sigueDevolviendoLaOriginal()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.011"/>
+  <testcase name="escenarioForzadoInvalido_422SinRegistrarLaOperacion()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.007"/>
+  <testcase name="mismaClaveConOtraDivisa_prx015()" classname="com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests" time="0.014"/>
+  <system-out><![CDATA[2026-09-30T18:23:27.106-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests]: IdempotenciaYEscenariosTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-09-30T18:23:27.108-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.praxthon.sandbox_spei.SandboxSpeiApplication for test class com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests
+2026-09-30T18:23:27.109-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests]: IdempotenciaYEscenariosTests does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-09-30T18:23:27.110-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.praxthon.sandbox_spei.SandboxSpeiApplication for test class com.praxthon.sandbox_spei.IdempotenciaYEscenariosTests
+2026-09-30T18:23:27.113-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.113-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.113-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 0 ms
+2026-09-30T18:23:27.125-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.125-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.126-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+2026-09-30T18:23:27.136-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.136-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.137-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+2026-09-30T18:23:27.276-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.276-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.277-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+2026-09-30T18:23:27.288-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.289-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.289-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 0 ms
+2026-09-30T18:23:27.300-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.300-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.300-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 0 ms
+2026-09-30T18:23:27.312-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.312-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.313-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+2026-09-30T18:23:27.319-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-09-30T18:23:27.319-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-09-30T18:23:27.320-06:00  INFO 6572 --- [sandbox-spei] [    Test worker] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 1 ms
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
