@@ -4,7 +4,6 @@
 Request:
 POST http://localhost:8080/api/v1/operaciones
 Content-Type: application/json
-Clave-Idempotencia: a01-{{$randomUUID}}
 
 {
   "tipoOperacion": "T2T",
@@ -15,7 +14,7 @@ Clave-Idempotencia: a01-{{$randomUUID}}
   },
   "receptor": {
     "institucion": "802",
-    "cuenta": "802180000000200119",
+    "cuenta": "802180000000990018",
     "nombre": "Luis Cano Mora"
   },
   "importe": { "valor": 1500.50, "divisa": "MXN" },
