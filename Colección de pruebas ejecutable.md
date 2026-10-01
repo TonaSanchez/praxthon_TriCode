@@ -15,13 +15,13 @@ Clave-Idempotencia: a01-{{$randomUUID}}
   },
   "receptor": {
     "institucion": "802",
-    "cuenta": "802180000000990010",
+    "cuenta": "802180000000200119",
     "nombre": "Luis Cano Mora"
   },
   "importe": { "valor": 1500.50, "divisa": "MXN" },
   "concepto": "Pago de servicios",
-  "folioNumerico": 200001,
-  "referenciaSeguimiento": "PRUEBAA01001"
+  "folioNumerico": 300001,
+  "referenciaSeguimiento": "A01V1PRUEBA"
 }
 
 ##  Resultado esperado
